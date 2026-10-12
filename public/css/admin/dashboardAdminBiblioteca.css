@@ -1,0 +1,671 @@
+/* =============================================
+   dashboardAdminBiblioteca.css — Biblioteca Virtual (SCRUM-18)
+   Catálogo, Detalle, Partidas, Visor, Guardados,
+   Historial y Gestión de material
+   EGAU Chess | AMAAC
+   Usa las variables de dashboardAdmin.css; los tonos de
+   portada vienen del Figma de la biblioteca.
+   ============================================= */
+
+#section-biblioteca {
+    --bib-borde: rgba(224, 92, 42, 0.18);
+    --bib-suave: #fdf3ef;
+    --bib-cafe: #5a1d0b;
+    --bib-radio: 14px;
+}
+
+.bib-subtitulo { color: var(--texto-suave); font-size: 14px; margin-top: 4px; }
+.bib-descripcion { color: var(--texto-suave); font-size: 14px; margin-bottom: 16px; }
+.bib-texto-suave { color: var(--texto-suave); font-size: 12px; }
+.bib-negrita { font-weight: 600; }
+.bib-derecha { text-align: right; }
+.bib-vacio-texto { text-align: center; padding: 48px 16px; color: var(--texto-suave); grid-column: 1 / -1; }
+
+/* ---- Pestañas ---- */
+.bib-tabs {
+    display: flex;
+    gap: 4px;
+    background: var(--blanco);
+    border-radius: var(--bib-radio);
+    padding: 6px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+    overflow-x: auto;
+}
+
+.bib-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: none;
+    background: transparent;
+    border-radius: 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: var(--texto);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.bib-tab:hover { background: var(--naranja-light); }
+.bib-tab.active { background: var(--naranja); color: var(--blanco); }
+.bib-tab i { font-size: 17px; }
+
+/* ---- Filtros ---- */
+.bib-filtros {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+    background: var(--blanco);
+    border-radius: var(--bib-radio);
+    padding: 16px;
+    margin-bottom: 20px;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.bib-buscador {
+    flex: 1;
+    min-width: 220px;
+    position: relative;
+}
+
+.bib-buscador-corto { flex: 0 1 420px; }
+
+.bib-buscador i {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--texto-suave);
+}
+
+.bib-buscador input,
+.bib-select {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--borde);
+    border-radius: 10px;
+    background: var(--fondo);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: var(--texto);
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.bib-buscador input { padding-left: 36px; }
+.bib-select { width: auto; min-width: 160px; cursor: pointer; }
+
+.bib-buscador input:focus,
+.bib-select:focus {
+    border-color: var(--naranja);
+    box-shadow: 0 0 0 3px rgba(224, 92, 42, 0.12);
+}
+
+.bib-conteo { font-size: 13px; color: var(--texto-suave); margin-bottom: 14px; }
+
+/* ---- Botones ---- */
+.bib-btn-primario,
+.bib-btn-outline,
+.bib-btn-peligro,
+.bib-btn-activo {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.bib-btn-primario,
+.bib-btn-activo { background: var(--naranja); color: var(--blanco); border: 1px solid var(--naranja); }
+.bib-btn-primario:hover { background: var(--naranja-hover); }
+.bib-btn-outline { background: var(--blanco); color: var(--texto); border: 1px solid var(--borde); }
+.bib-btn-outline:hover:not(:disabled) { border-color: var(--naranja); color: var(--naranja); }
+.bib-btn-peligro { background: var(--blanco); color: #d93025; border: 1px solid #f5c6c2; }
+.bib-btn-peligro:hover { background: var(--rojo-light); }
+.bib-btn-guardado { border-color: var(--naranja); color: var(--naranja); }
+.bib-btn-sm { padding: 6px 12px; font-size: 13px; }
+
+.bib-btn-primario:disabled,
+.bib-btn-outline:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.bib-icono-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--texto-suave);
+    font-size: 16px;
+    cursor: pointer;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.bib-icono-btn:hover { background: var(--naranja-light); color: var(--naranja); }
+.bib-icono-peligro:hover { background: var(--rojo-light); color: #d93025; }
+
+/* ---- Insignias de nivel y tipo ---- */
+.bib-badge,
+.bib-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 2px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+}
+
+.bib-nivel-peon    { background: #f1f3f4; color: #3c4043; }
+.bib-nivel-caballo { background: #e6f4ea; color: #137333; }
+.bib-nivel-alfil   { background: #e8f0fe; color: #1967d2; }
+.bib-nivel-torre   { background: #f3e8fd; color: #7c3aed; }
+.bib-nivel-reina   { background: #fef7e0; color: #b06000; }
+.bib-nivel-rey     { background: #fce8e6; color: #c5221f; }
+
+.bib-tipo-libro     { background: #fce0d8; color: var(--bib-cafe); }
+.bib-tipo-partida   { background: #ffedd5; color: #c2410c; }
+.bib-tipo-video     { background: #e8f0fe; color: #1967d2; }
+.bib-tipo-ejercicio { background: #d1fae5; color: #047857; }
+
+/* ---- Portadas (degradados del Figma) ---- */
+.bib-portada-1 { background: linear-gradient(135deg, #e24523, #f07a5e); }
+.bib-portada-2 { background: linear-gradient(135deg, #f07a5e, #fa9d82); }
+.bib-portada-3 { background: linear-gradient(135deg, #5a1d0b, #e24523); }
+.bib-portada-4 { background: linear-gradient(135deg, #fa9d82, #fcc3b2); }
+.bib-portada-5 { background: linear-gradient(135deg, #d94e30, #f07a5e); }
+.bib-portada-6 { background: linear-gradient(135deg, #eb5736, #fa9d82); }
+
+/* ---- Tarjetas del catálogo ---- */
+.bib-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 20px;
+    margin-bottom: 28px;
+}
+
+.bib-card {
+    display: block;
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-radius: var(--bib-radio);
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    transition: box-shadow 0.2s, border-color 0.2s, transform 0.2s;
+}
+
+.bib-card:hover {
+    border-color: rgba(224, 92, 42, 0.45);
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.08);
+    transform: translateY(-2px);
+}
+
+.bib-card-portada {
+    position: relative;
+    height: 144px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.bib-card-mini .bib-card-portada { height: 96px; }
+
+.bib-card-marca {
+    font-size: 52px;
+    color: rgba(255, 255, 255, 0.35);
+    user-select: none;
+}
+
+.bib-card-mini .bib-card-marca { font-size: 34px; }
+
+.bib-card-icono {
+    position: absolute;
+    font-size: 32px;
+    color: rgba(255, 255, 255, 0.85);
+}
+
+.bib-card-tipo { position: absolute; top: 12px; right: 12px; }
+
+.bib-card-body { padding: 16px; }
+
+.bib-card-titulo {
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.4;
+    margin-bottom: 4px;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    transition: color 0.2s;
+}
+
+.bib-card:hover .bib-card-titulo { color: var(--naranja); }
+.bib-card-creador { font-size: 12px; color: var(--texto-suave); margin-bottom: 12px; }
+
+.bib-card-pie {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.bib-paginacion { display: flex; justify-content: center; gap: 8px; }
+
+/* ---- Detalle de documento ---- */
+.bib-volver {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    color: var(--texto-suave);
+    text-decoration: none;
+    margin-bottom: 20px;
+    transition: color 0.2s;
+}
+
+.bib-volver:hover { color: var(--naranja); }
+
+.bib-doc {
+    display: flex;
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-radius: var(--bib-radio);
+    overflow: hidden;
+    margin-bottom: 32px;
+}
+
+.bib-doc-portada {
+    width: 224px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 32px;
+    min-height: 200px;
+}
+
+.bib-doc-marca { font-size: 80px; color: rgba(255, 255, 255, 0.3); line-height: 1; }
+
+.bib-doc-info { flex: 1; padding: 24px; min-width: 0; }
+
+.bib-doc-cabecera {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.bib-doc-titulo { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+.bib-doc-cabecera .bib-texto-suave { font-size: 14px; }
+
+.bib-tabla-meta { width: 100%; border-collapse: collapse; font-size: 14px; }
+.bib-tabla-meta tr { border-bottom: 1px solid var(--borde); }
+.bib-tabla-meta tr:last-child { border-bottom: none; }
+.bib-tabla-meta td { padding: 8px 0; vertical-align: top; }
+
+.bib-tabla-meta td:first-child {
+    width: 150px;
+    padding-right: 16px;
+    color: var(--texto-suave);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.bib-tabla-meta-corta td { padding: 6px 0; }
+.bib-tabla-meta-corta td:first-child { width: 96px; }
+
+.bib-doc-acciones { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+
+.bib-subtitulo-seccion { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+.bib-grid-relacionados .bib-card-pie { justify-content: flex-start; flex-wrap: wrap; }
+
+/* ---- Tablas (Partidas y Gestión) ---- */
+.bib-tabla-wrap {
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-radius: var(--bib-radio);
+    overflow-x: auto;
+}
+
+.bib-tabla { width: 100%; border-collapse: collapse; font-size: 14px; }
+
+.bib-tabla thead th {
+    text-align: left;
+    padding: 12px 16px;
+    background: var(--bib-suave);
+    font-weight: 600;
+    font-size: 13px;
+    color: var(--texto);
+    white-space: nowrap;
+}
+
+.bib-tabla thead th.bib-derecha { text-align: right; }
+.bib-tabla tbody td { padding: 12px 16px; border-top: 1px solid var(--borde); vertical-align: middle; }
+.bib-tabla tbody tr:hover { background: #fffaf8; }
+.bib-acciones { white-space: nowrap; }
+
+.bib-resultado { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; }
+.bib-res-blancas { background: #ecfdf5; color: #047857; }
+.bib-res-negras  { background: #fef2f2; color: #b91c1c; }
+.bib-res-tablas  { background: #fffbeb; color: #b45309; }
+
+.bib-eco {
+    font-family: ui-monospace, 'Consolas', monospace;
+    font-size: 12px;
+    background: var(--gris-light);
+    color: var(--texto-suave);
+    padding: 2px 6px;
+    border-radius: 6px;
+    margin-left: 4px;
+}
+
+.bib-estatus {
+    border: none;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 999px;
+    cursor: pointer;
+}
+
+.bib-estatus-activo   { background: #d1fae5; color: #047857; }
+.bib-estatus-inactivo { background: var(--gris-light); color: var(--texto-suave); }
+
+/* ---- Visor de partida ---- */
+.bib-visor { display: flex; gap: 24px; align-items: flex-start; }
+.bib-visor-izq { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.bib-visor-der { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+
+.bib-tablero-marco {
+    display: grid;
+    grid-template-columns: 22px auto;
+    grid-template-rows: auto 22px;
+}
+
+.bib-rangos,
+.bib-columnas {
+    display: grid;
+    font-size: 12px;
+    color: var(--texto-suave);
+    font-family: ui-monospace, 'Consolas', monospace;
+}
+
+.bib-rangos { grid-template-rows: repeat(8, 52px); align-items: center; }
+.bib-columnas { grid-template-columns: repeat(8, 52px); text-align: center; align-items: end; }
+
+.bib-tablero {
+    display: grid;
+    grid-template-columns: repeat(8, 52px);
+    grid-template-rows: repeat(8, 52px);
+    border: 2px solid rgba(90, 29, 11, 0.4);
+    border-radius: 6px;
+    overflow: hidden;
+    user-select: none;
+}
+
+.bib-casilla {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    line-height: 1;
+    color: #1a1a1a;
+}
+
+.bib-clara   { background: #fce0d8; }
+.bib-oscura  { background: #f2a794; }
+.bib-marcada { box-shadow: inset 0 0 0 100px rgba(255, 213, 79, 0.45); }
+
+.bib-visor-controles { display: flex; align-items: center; gap: 8px; }
+.bib-visor-controles i { font-size: 16px; }
+
+.bib-visor-pos {
+    min-width: 110px;
+    text-align: center;
+    font-size: 13px;
+    color: var(--texto-suave);
+    font-family: ui-monospace, 'Consolas', monospace;
+}
+
+.bib-panel {
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-radius: var(--bib-radio);
+    padding: 20px;
+}
+
+.bib-visor-titulo { font-size: 18px; font-weight: 600; margin-bottom: 12px; }
+.bib-visor-nivel { margin-top: 12px; }
+
+.bib-etiqueta-panel {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--texto-suave);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 12px;
+}
+
+.bib-jugadas { max-height: 290px; overflow-y: auto; }
+
+.bib-jugada {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: ui-monospace, 'Consolas', monospace;
+    font-size: 14px;
+    padding: 1px 0;
+}
+
+.bib-jugada-num { width: 32px; font-size: 12px; color: var(--texto-suave); }
+
+.bib-jugada-btn {
+    border: none;
+    background: transparent;
+    font-family: inherit;
+    font-size: inherit;
+    color: var(--texto);
+    padding: 2px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    min-width: 64px;
+    text-align: left;
+}
+
+.bib-jugada-btn:hover:not(:disabled) { background: var(--naranja-light); }
+.bib-jugada-btn.active { background: var(--naranja); color: var(--blanco); }
+.bib-jugada-btn:disabled { color: var(--texto-suave); cursor: default; }
+
+.bib-jugada-resultado {
+    text-align: center;
+    font-weight: 600;
+    color: var(--texto-suave);
+    margin-top: 8px;
+    font-size: 14px;
+}
+
+/* ---- Listas (Guardados e Historial) ---- */
+.bib-fila-cabecera {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.bib-fila-cabecera .bib-descripcion { margin-bottom: 0; }
+
+.bib-lista {
+    background: var(--blanco);
+    border: 1px solid var(--borde);
+    border-radius: var(--bib-radio);
+    overflow: hidden;
+}
+
+.bib-fila {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px;
+    border-top: 1px solid var(--borde);
+    transition: background-color 0.2s;
+}
+
+.bib-fila:first-child { border-top: none; }
+.bib-fila:hover { background: #fffaf8; }
+
+.bib-fila-miniatura {
+    width: 56px;
+    height: 56px;
+    border-radius: 10px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 22px;
+    color: rgba(255, 255, 255, 0.75);
+}
+
+.bib-fila-info { flex: 1; min-width: 0; }
+
+.bib-fila-titulo {
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.bib-fila-etiquetas { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; }
+.bib-fila-acciones { display: flex; gap: 8px; flex-shrink: 0; }
+
+.bib-vacio { text-align: center; padding: 56px 16px; color: var(--texto-suave); }
+.bib-vacio > i { font-size: 40px; opacity: 0.4; display: block; margin-bottom: 10px; }
+.bib-vacio .bib-btn-primario { margin-top: 16px; }
+
+/* ---- Modal Agregar / Editar ---- */
+.bib-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s, visibility 0.2s;
+}
+
+.bib-modal-overlay.open { opacity: 1; visibility: visible; }
+
+.bib-modal {
+    background: var(--blanco);
+    border-radius: 16px;
+    width: 100%;
+    max-width: 680px;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+    transform: translateY(10px);
+    transition: transform 0.2s;
+}
+
+.bib-modal-overlay.open .bib-modal { transform: none; }
+
+.bib-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--borde);
+}
+
+.bib-modal-header h2 { font-size: 18px; font-weight: 600; }
+
+#bib-form { padding: 20px 24px; }
+
+.bib-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.bib-campo { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.bib-campo > span { font-weight: 500; }
+.bib-campo-ancho { grid-column: 1 / -1; }
+
+.bib-campo input,
+.bib-campo select,
+.bib-campo textarea {
+    padding: 10px 12px;
+    border: 1px solid var(--borde);
+    border-radius: 10px;
+    background: var(--fondo);
+    font-family: 'Inter', sans-serif;
+    font-size: 14px;
+    color: var(--texto);
+    outline: none;
+    resize: none;
+}
+
+.bib-campo input:focus,
+.bib-campo select:focus,
+.bib-campo textarea:focus {
+    border-color: var(--naranja);
+    box-shadow: 0 0 0 3px rgba(224, 92, 42, 0.12);
+}
+
+.bib-sha { font-family: ui-monospace, 'Consolas', monospace; font-size: 12px !important; color: var(--texto-suave) !important; }
+
+.bib-zona-archivo {
+    border: 2px dashed var(--borde);
+    border-radius: 12px;
+    padding: 28px;
+    text-align: center;
+    color: var(--texto-suave);
+    cursor: pointer;
+    transition: border-color 0.2s, background-color 0.2s;
+}
+
+.bib-zona-archivo:hover { border-color: rgba(224, 92, 42, 0.5); background: #fffaf8; }
+.bib-zona-archivo.bib-arrastrando { border-color: var(--naranja); background: var(--naranja-light); }
+.bib-zona-icono { font-size: 30px; opacity: 0.5; display: block; margin-bottom: 6px; }
+
+.bib-archivo-elegido {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: var(--naranja);
+    font-weight: 500;
+}
+
+.bib-modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 24px;
+}
+
+/* ---- Pantallas angostas de escritorio ---- */
+@media (max-width: 1100px) {
+    .bib-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .bib-visor { flex-direction: column; }
+    .bib-visor-der { width: 100%; }
+}

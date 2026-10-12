@@ -24,6 +24,7 @@
     <link rel="stylesheet" href="{{ asset('css/admin/dashboardAdminNiveles.css') }}">
     <link rel="stylesheet" href="{{ asset('css/admin/dashboardAdminRoles.css') }}">
     <link rel="stylesheet" href="{{ asset('css/admin/dashboardAdminFacturas.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/admin/dashboardAdminBiblioteca.css') }}">
 </head>
 
 <body>
@@ -109,6 +110,11 @@
                 <a href="#"><i class="ri-book-open-line"></i><span>Niveles</span></a>
             </li>
         @endif
+
+        {{-- Biblioteca: visible para todo el personal, sin depender de permisos --}}
+        <li class="nav-item" data-section="biblioteca">
+            <a href="#"><i class="ri-book-shelf-line"></i><span>Biblioteca</span></a>
+        </li>
     </ul>
 </nav>
 
@@ -886,6 +892,9 @@
             </div>
         </div>
 
+        {{-- ===================== BIBLIOTECA VIRTUAL ===================== --}}
+        @include('admin.biblioteca')
+
         <section class="section-content" id="section-opciones" style="display: none;">
             @include('admin.partials.configuracion')
         </section>
@@ -921,6 +930,9 @@
     <script src="{{ asset('animaciones/admin/dashboardAdminNiveles.js') }}?v={{ time() }}"></script>
     <!-- JS Sección Roles -->
     <script src="{{ asset('animaciones/admin/dashboardAdminRoles.js') }}?v={{ time() }}"></script>
+    <!-- JS Sección Biblioteca (datos de prueba + vistas) -->
+    <script src="{{ asset('animaciones/admin/dashboardAdminBibliotecaDatos.js') }}?v={{ time() }}"></script>
+    <script src="{{ asset('animaciones/admin/dashboardAdminBiblioteca.js') }}?v={{ time() }}"></script>
     <!-- JS Sección Configuración -->
     <script src="{{ asset('animaciones/admin/dashboardAdminPerfil.js') }}?v={{ time() }}"></script>
 
