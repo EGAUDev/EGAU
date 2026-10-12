@@ -61,7 +61,7 @@
                 <div class="form-group">
                     <label for="username">Correo / Usuario</label>
                     <input type="email" id="username" name="username" placeholder="Ingresa tu correo" required
-                        value="{{ old('username') }}">
+                         value="{{ old('username') }}" autocomplete="off">
                     <span class="error-msg" id="error-username">
                         {{ $errors->first('username') }}
                     </span>
@@ -69,8 +69,8 @@
 
                 <div class="form-group">
                     <label for="password">Contraseña</label>
-                    <input type="password" id="password" name="password" placeholder="Ingresa tu contraseña" required
-                        minlength="6">
+                 <input type="password" id="password" name="password" placeholder="Ingresa tu contraseña" required
+                     minlength="6" autocomplete="new-password"> 
                     <div class="forgot-wrapper">
                         <a href="#" class="forgot-link">¿Olvidaste tu contraseña?</a>
                     </div>

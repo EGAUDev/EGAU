@@ -14,11 +14,11 @@ document.addEventListener('DOMContentLoaded', () => {
     const info = document.querySelector('.pagination-info');
 
     const calcNivel = (puntaje) => {
-        if (puntaje >= 3000) return { nombre: 'Rey',     emoji: '♔', css: 'badge-rey' };
-        if (puntaje >= 1500) return { nombre: 'Reina',   emoji: '♕', css: 'badge-reina' };
-        if (puntaje >= 800)  return { nombre: 'Torre',   emoji: '♖', css: 'badge-torre' };
-        if (puntaje >= 400)  return { nombre: 'Alfil',   emoji: '♗', css: 'badge-alfil' };
-        if (puntaje >= 150)  return { nombre: 'Caballo', emoji: '♘', css: 'badge-caballo' };
+        if (puntaje >= 3000) return { nombre: 'Rey', emoji: '♔', css: 'badge-rey' };
+        if (puntaje >= 1500) return { nombre: 'Reina', emoji: '♕', css: 'badge-reina' };
+        if (puntaje >= 800) return { nombre: 'Torre', emoji: '♖', css: 'badge-torre' };
+        if (puntaje >= 400) return { nombre: 'Alfil', emoji: '♗', css: 'badge-alfil' };
+        if (puntaje >= 150) return { nombre: 'Caballo', emoji: '♘', css: 'badge-caballo' };
         return { nombre: 'Peón', emoji: '♙', css: 'badge-peon' };
     };
 
@@ -231,7 +231,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    if (btnAgregar) btnAgregar.addEventListener('click', abrirModal);
+    const PERMISOS_AL = window.PERMISOS_ALUMNOS || { edit: false };
+    if (btnAgregar && PERMISOS_AL.edit) btnAgregar.addEventListener('click', abrirModal);
     if (btnCerrarModal) btnCerrarModal.addEventListener('click', cerrarModal);
     if (btnCancelarModal) btnCancelarModal.addEventListener('click', cerrarModal);
 

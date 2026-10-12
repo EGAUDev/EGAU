@@ -161,7 +161,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    if (btnAgregar) btnAgregar.addEventListener('click', abrirModal);
+    const permisosSede = window.PERMISOS_SEDES || { edit: false };
+    if (btnAgregar && permisosSede.edit) btnAgregar.addEventListener('click', abrirModal);
     if (btnCerrarModal) btnCerrarModal.addEventListener('click', cerrarModal);
     if (btnCancelarModal) btnCancelarModal.addEventListener('click', cerrarModal);
 

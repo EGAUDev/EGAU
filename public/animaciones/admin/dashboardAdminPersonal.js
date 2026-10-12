@@ -234,7 +234,8 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
-    if (btnAgregar) btnAgregar.addEventListener('click', abrirModal);
+    const PERMISOS_PE = window.PERMISOS_PERSONAL || { edit: false };
+    if (btnAgregar && PERMISOS_PE.edit) btnAgregar.addEventListener('click', abrirModal);
     if (btnCerrarModal) btnCerrarModal.addEventListener('click', cerrarModal);
     if (btnCancelarModal) btnCancelarModal.addEventListener('click', cerrarModal);
 

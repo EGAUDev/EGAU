@@ -144,7 +144,7 @@
         const overlay = $('modal-agregar-extraescolar');
         const form = $('form-agregar-extraescolar');
 
-        if (btnAbrir) btnAbrir.addEventListener('click', () => { resetFormAgregar(); abrirModal(overlay); });
+        if (btnAbrir && PERMISOS.edit) btnAbrir.addEventListener('click', () => { resetFormAgregar(); abrirModal(overlay); });
         if (btnCancelar) btnCancelar.addEventListener('click', () => cerrarModal(overlay));
         if (btnClose) btnClose.addEventListener('click', () => cerrarModal(overlay));
         if (overlay) overlay.addEventListener('click', e => { if (e.target === overlay) cerrarModal(overlay); });

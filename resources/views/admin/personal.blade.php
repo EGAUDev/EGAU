@@ -3,9 +3,11 @@
 
     <div class="section-header">
         <h1 class="section-title">Gestión de Personal</h1>
-        <button class="btn-primary" id="btn-agregar-personal">
-            <i class="ri-add-line"></i> Agregar Personal
-        </button>
+      @if($permisos->personal_edit ?? false)
+      <button class="btn-primary" id="btn-agregar-personal">
+        <i class="ri-add-line"></i> Agregar Personal
+    </button>
+    @endif  
     </div>
 
     <div class="card">

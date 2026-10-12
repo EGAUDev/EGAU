@@ -3,9 +3,11 @@
 
     <div class="section-header">
         <h1 class="section-title">Gestión de Sedes</h1>
-        <button class="btn-primary" id="btn-agregar-sede">
-            <i class="ri-add-line"></i> Agregar Sede
-        </button>
+        @if($permisos->sedes_edit ?? false)
+            <button class="btn-primary" id="btn-agregar-sede">
+                <i class="ri-add-line"></i> Agregar Sede
+            </button>
+        @endif          
     </div>
 
     <div class="card card-sedes">

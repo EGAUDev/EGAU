@@ -5,7 +5,7 @@
 (function () {
     'use strict';
 
-    const CSRF    = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const PERMISOS = window.PERMISOS_ROLES || { ver: false, edit: false, admin: false };
 
     const $ = id => document.getElementById(id);
@@ -23,16 +23,16 @@
 
     // ── Módulos de la matriz ─────────────────────────────────
     const MODULOS = [
-        { id: 'alumno',            nombre: 'Alumnos',       hasEdit: true  },
-        { id: 'profesor',          nombre: 'Profesores',    hasEdit: true  },
-        { id: 'personal',          nombre: 'Personal',      hasEdit: true  },
-        { id: 'roles',             nombre: 'Roles',         hasEdit: true  },
-        { id: 'sedes',             nombre: 'Sedes',         hasEdit: true  },
-        { id: 'grupos',            nombre: 'Grupos',        hasEdit: true  },
-        { id: 'extracurriculares', nombre: 'Extraescolares',hasEdit: true  },
-        { id: 'estatus',           nombre: 'Status',        hasEdit: false },
-        { id: 'pagos',             nombre: 'Pagos',         hasEdit: true  },
-        { id: 'niveles',           nombre: 'Niveles',       hasEdit: true  },
+        { id: 'alumno', nombre: 'Alumnos', hasEdit: true },
+        { id: 'profesor', nombre: 'Profesores', hasEdit: true },
+        { id: 'personal', nombre: 'Personal', hasEdit: true },
+        { id: 'roles', nombre: 'Roles', hasEdit: true },
+        { id: 'sedes', nombre: 'Sedes', hasEdit: true },
+        { id: 'grupos', nombre: 'Grupos', hasEdit: true },
+        { id: 'extracurriculares', nombre: 'Extraescolares', hasEdit: true },
+        { id: 'estatus', nombre: 'Status', hasEdit: false },
+        { id: 'pagos', nombre: 'Pagos', hasEdit: true },
+        { id: 'niveles', nombre: 'Niveles', hasEdit: true },
     ];
 
     // ── Init ─────────────────────────────────────────────────
@@ -48,7 +48,7 @@
     function initDropdownsFiltros() {
         document.querySelectorAll('#section-roles .custom-dropdown').forEach(dd => {
             const trigger = el('.custom-select-trigger', dd);
-            const opts    = el('.custom-options-container', dd);
+            const opts = el('.custom-options-container', dd);
             if (!trigger || !opts) return;
 
             trigger.addEventListener('click', (e) => {
@@ -60,7 +60,7 @@
 
             opts.querySelectorAll('.custom-option').forEach(opt => {
                 opt.addEventListener('click', () => {
-                    el('.selected-text', trigger).textContent  = opt.textContent.trim();
+                    el('.selected-text', trigger).textContent = opt.textContent.trim();
                     el('.selected-text', trigger).dataset.value = opt.dataset.value;
                     opts.querySelectorAll('.custom-option').forEach(o => o.classList.remove('selected'));
                     opt.classList.add('selected');
@@ -100,7 +100,7 @@
             document.querySelectorAll('#section-roles .custom-dropdown').forEach(dd => {
                 const first = el('.custom-option', el('.custom-options-container', dd));
                 if (first) {
-                    el('.selected-text', dd).textContent  = first.textContent.trim();
+                    el('.selected-text', dd).textContent = first.textContent.trim();
                     el('.selected-text', dd).dataset.value = first.dataset.value;
                     el('.custom-options-container', dd).querySelectorAll('.custom-option').forEach(o => o.classList.remove('selected'));
                     first.classList.add('selected');
@@ -114,7 +114,7 @@
     // ── Carga ────────────────────────────────────────────────
     function cargarRoles() {
         const params = new URLSearchParams();
-        if (state.filtros.q)       params.set('q', state.filtros.q);
+        if (state.filtros.q) params.set('q', state.filtros.q);
         if (state.filtros.estatus) params.set('estatus', state.filtros.estatus);
 
         fetch(`/admin/roles?${params}`, { headers: { Accept: 'application/json', 'X-CSRF-TOKEN': CSRF } })
@@ -139,8 +139,8 @@
             }
             if (state.filtros.estatus) {
                 const esActivo = r.estatus == true || r.estatus == 'true' || r.estatus == 1;
-                if (state.filtros.estatus === 'activo'   && !esActivo) return false;
-                if (state.filtros.estatus === 'inactivo' && esActivo)  return false;
+                if (state.filtros.estatus === 'activo' && !esActivo) return false;
+                if (state.filtros.estatus === 'inactivo' && esActivo) return false;
             }
             return true;
         });
@@ -160,8 +160,8 @@
         }
 
         tbody.innerHTML = pagina.map(r => {
-            const esActivo  = r.estatus == true || r.estatus == 'true' || r.estatus == 1;
-            const esAdmin   = r.administrativo == true || r.administrativo == 'true' || r.administrativo == 1;
+            const esActivo = r.estatus == true || r.estatus == 'true' || r.estatus == 1;
+            const esAdmin = r.administrativo == true || r.administrativo == 'true' || r.administrativo == 1;
             const tipoBadge = esAdmin
                 ? '<span class="badge badge-rol-admin">Administrador</span>'
                 : '<span class="badge badge-rol-inactivo" style="background:#f0f0f0;color:#555;">Estándar</span>';
@@ -198,12 +198,12 @@
     }
 
     function renderPaginacion() {
-        const info  = $('roles-pag-info');
-        const btns  = $('roles-pag-btns');
+        const info = $('roles-pag-info');
+        const btns = $('roles-pag-btns');
         if (!btns) return;
 
         const filtrados = rolesFiltrados();
-        const total  = filtrados.length;
+        const total = filtrados.length;
         const paginas = Math.ceil(total / state.porPagina);
 
         if (info) info.textContent = `${total} rol${total !== 1 ? 'es' : ''}`;
@@ -233,39 +233,39 @@
     // ── Modal VER ────────────────────────────────────────────
     function bindModalVer() {
         const btnCerrar = $('btn-cerrar-ver-rol');
-        const btnClose  = $('modal-close-ver-rol');
-        const overlay   = $('modal-ver-rol');
+        const btnClose = $('modal-close-ver-rol');
+        const overlay = $('modal-ver-rol');
         if (btnCerrar) btnCerrar.addEventListener('click', () => cerrarModal(overlay));
-        if (btnClose)  btnClose.addEventListener('click',  () => cerrarModal(overlay));
-        if (overlay)   overlay.addEventListener('click', e => { if (e.target === overlay) cerrarModal(overlay); });
+        if (btnClose) btnClose.addEventListener('click', () => cerrarModal(overlay));
+        if (overlay) overlay.addEventListener('click', e => { if (e.target === overlay) cerrarModal(overlay); });
     }
 
     function abrirVerRol(id) {
         const overlay = $('modal-ver-rol');
-        const loader  = $('ver-rol-loader');
+        const loader = $('ver-rol-loader');
         const content = $('ver-rol-content');
         if (!overlay) return;
 
-        if (loader)  loader.style.display  = 'block';
+        if (loader) loader.style.display = 'block';
         if (content) content.style.display = 'none';
         abrirModal(overlay);
 
         fetch(`/admin/roles/${id}`, { headers: { Accept: 'application/json', 'X-CSRF-TOKEN': CSRF } })
             .then(r => r.json())
             .then(rol => {
-                setText('vr-nombre',     rol.nombre);
-                setText('vr-tipo',       (rol.administrativo == true || rol.administrativo == 1) ? 'Administrador' : 'Estándar');
-                setText('vr-estatus',    (rol.estatus == true || rol.estatus == 1) ? 'Activo' : 'Inactivo');
-                setText('vr-descripcion',rol.descripcion);
+                setText('vr-nombre', rol.nombre);
+                setText('vr-tipo', (rol.administrativo == true || rol.administrativo == 1) ? 'Administrador' : 'Estándar');
+                setText('vr-estatus', (rol.estatus == true || rol.estatus == 1) ? 'Activo' : 'Inactivo');
+                setText('vr-descripcion', rol.descripcion);
 
                 const tbody = $('vr-permisos-tbody');
                 if (tbody) {
                     tbody.innerHTML = MODULOS.map(m => {
-                        const verKey  = m.id === 'estatus' ? 'estatus_ver' : `${m.id}_ver`;
+                        const verKey = m.id === 'estatus' ? 'estatus_ver' : `${m.id}_ver`;
                         const editKey = `${m.id}_edit`;
-                        const ver  = (rol[verKey]  == true || rol[verKey]  == 1) ? '✓' : '—';
+                        const ver = (rol[verKey] == true || rol[verKey] == 1) ? '✓' : '—';
                         const edit = m.hasEdit ? ((rol[editKey] == true || rol[editKey] == 1) ? '✓' : '—') : 'N/A';
-                        const verStyle  = ver  === '✓' ? 'color:var(--verde,#1e8e3e);font-weight:700;' : 'color:var(--texto-suave);';
+                        const verStyle = ver === '✓' ? 'color:var(--verde,#1e8e3e);font-weight:700;' : 'color:var(--texto-suave);';
                         const editStyle = edit === '✓' ? 'color:var(--verde,#1e8e3e);font-weight:700;' : 'color:var(--texto-suave);';
                         return `<tr>
                             <td><strong>${m.nombre}</strong></td>
@@ -275,7 +275,7 @@
                     }).join('');
                 }
 
-                if (loader)  loader.style.display  = 'none';
+                if (loader) loader.style.display = 'none';
                 if (content) content.style.display = 'block';
             })
             .catch(() => { if (loader) loader.innerHTML = '<p style="color:#c0392b;">Error al cargar el rol.</p>'; });
@@ -283,17 +283,17 @@
 
     // ── Modal CREAR/EDITAR ───────────────────────────────────
     function bindModalRol() {
-        const btnAgregar  = $('btn-agregar-rol');
+        const btnAgregar = $('btn-agregar-rol');
         const btnCancelar = $('btn-cancelar-modal-rol');
-        const btnClose    = $('modal-close-rol');
-        const overlay     = $('modal-agregar-rol');
-        const form        = $('form-agregar-rol');
+        const btnClose = $('modal-close-rol');
+        const overlay = $('modal-agregar-rol');
+        const form = $('form-agregar-rol');
 
-        if (btnAgregar)  btnAgregar.addEventListener('click',  () => abrirCrearRol());
+        if (btnAgregar && PERMISOS.edit) btnAgregar.addEventListener('click', () => abrirCrearRol());
         if (btnCancelar) btnCancelar.addEventListener('click', () => cerrarModal(overlay));
-        if (btnClose)    btnClose.addEventListener('click',    () => cerrarModal(overlay));
-        if (overlay)     overlay.addEventListener('click', e => { if (e.target === overlay) cerrarModal(overlay); });
-        if (form)        form.addEventListener('submit', enviarFormRol);
+        if (btnClose) btnClose.addEventListener('click', () => cerrarModal(overlay));
+        if (overlay) overlay.addEventListener('click', e => { if (e.target === overlay) cerrarModal(overlay); });
+        if (form) form.addEventListener('submit', enviarFormRol);
 
         // Dropdowns del modal
         initFormDropdowns(overlay);
@@ -303,8 +303,8 @@
         if (!ctx) return;
         ctx.querySelectorAll('.form-dropdown').forEach(dd => {
             const trigger = el('.form-select-trigger', dd);
-            const opts    = el('.form-options-container', dd);
-            const hidden  = el('input[type="hidden"]', dd);
+            const opts = el('.form-options-container', dd);
+            const hidden = el('input[type="hidden"]', dd);
             if (!trigger || !opts) return;
 
             trigger.addEventListener('click', (e) => {
@@ -316,7 +316,7 @@
 
             opts.querySelectorAll('.form-option').forEach(opt => {
                 opt.addEventListener('click', () => {
-                    el('.selected-text', trigger).textContent   = opt.textContent.trim();
+                    el('.selected-text', trigger).textContent = opt.textContent.trim();
                     el('.selected-text', trigger).dataset.value = opt.dataset.value;
                     opts.querySelectorAll('.form-option').forEach(o => o.classList.remove('selected'));
                     opt.classList.add('selected');
@@ -333,7 +333,7 @@
 
     function abrirCrearRol() {
         state.modoEdicion = false;
-        state.idEditando  = null;
+        state.idEditando = null;
 
         const titulo = $('modal-rol-titulo');
         if (titulo) titulo.textContent = 'Agregar Nuevo Rol';
@@ -347,7 +347,7 @@
 
     function abrirEditarRol(id) {
         state.modoEdicion = true;
-        state.idEditando  = id;
+        state.idEditando = id;
 
         const titulo = $('modal-rol-titulo');
         if (titulo) titulo.textContent = 'Editar Rol';
@@ -360,7 +360,7 @@
         fetch(`/admin/roles/${id}`, { headers: { Accept: 'application/json', 'X-CSRF-TOKEN': CSRF } })
             .then(r => r.json())
             .then(rol => {
-                setInput('ro-nombre',      rol.nombre      || '');
+                setInput('ro-nombre', rol.nombre || '');
                 setTextarea('ro-descripcion', rol.descripcion || '');
 
                 // Tipo dropdown
@@ -373,11 +373,11 @@
 
                 // Permisos
                 MODULOS.forEach(m => {
-                    const verKey  = m.id === 'estatus' ? 'estatus_ver' : `${m.id}_ver`;
+                    const verKey = m.id === 'estatus' ? 'estatus_ver' : `${m.id}_ver`;
                     const editKey = `${m.id}_edit`;
-                    const chkVer  = $(`perm-${m.id}-ver`);
+                    const chkVer = $(`perm-${m.id}-ver`);
                     const chkEdit = $(`perm-${m.id}-edit`);
-                    if (chkVer)  chkVer.checked  = (rol[verKey]  == true || rol[verKey]  == 1);
+                    if (chkVer) chkVer.checked = (rol[verKey] == true || rol[verKey] == 1);
                     if (chkEdit) chkEdit.checked = (rol[editKey] == true || rol[editKey] == 1);
                 });
 
@@ -399,10 +399,10 @@
     function enviarFormRol(e) {
         e.preventDefault();
 
-        const nombre      = ($('ro-nombre')?.value || '').trim();
+        const nombre = ($('ro-nombre')?.value || '').trim();
         const descripcion = ($('ro-descripcion')?.value || '').trim();
-        const estatusVal  = $('ro-estatus')?.value === 'true';
-        const adminVal    = $('ro-tipo')?.value === 'true';
+        const estatusVal = $('ro-estatus')?.value === 'true';
+        const adminVal = $('ro-tipo')?.value === 'true';
 
         // Validación básica
         let ok = true;
@@ -412,13 +412,13 @@
 
         const body = { nombre, descripcion, estatus: estatusVal, administrativo: adminVal };
         MODULOS.forEach(m => {
-            const verKey  = m.id === 'estatus' ? 'estatus_ver' : `${m.id}_ver`;
+            const verKey = m.id === 'estatus' ? 'estatus_ver' : `${m.id}_ver`;
             const editKey = `${m.id}_edit`;
-            body[verKey]  = !!($(`perm-${m.id}-ver`)?.checked);
+            body[verKey] = !!($(`perm-${m.id}-ver`)?.checked);
             if (m.hasEdit) body[editKey] = !!($(`perm-${m.id}-edit`)?.checked);
         });
 
-        const url    = state.modoEdicion ? `/admin/roles/${state.idEditando}` : '/admin/roles';
+        const url = state.modoEdicion ? `/admin/roles/${state.idEditando}` : '/admin/roles';
         const method = state.modoEdicion ? 'PUT' : 'POST';
 
         fetch(url, {
@@ -426,20 +426,20 @@
             headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': CSRF },
             body: JSON.stringify(body),
         })
-        .then(r => r.json())
-        .then(res => {
-            if (res.errors) {
-                Object.entries(res.errors).forEach(([k, msgs]) => {
-                    const el = $(`err-ro-${k}`);
-                    if (el) el.textContent = msgs[0];
-                });
-                return;
-            }
-            if (res.error) { alert(res.error); return; }
-            cerrarModal($('modal-agregar-rol'));
-            cargarRoles();
-        })
-        .catch(() => alert('Error al guardar el rol.'));
+            .then(r => r.json())
+            .then(res => {
+                if (res.errors) {
+                    Object.entries(res.errors).forEach(([k, msgs]) => {
+                        const el = $(`err-ro-${k}`);
+                        if (el) el.textContent = msgs[0];
+                    });
+                    return;
+                }
+                if (res.error) { alert(res.error); return; }
+                cerrarModal($('modal-agregar-rol'));
+                cargarRoles();
+            })
+            .catch(() => alert('Error al guardar el rol.'));
     }
 
     function eliminarRol(id) {
@@ -449,12 +449,12 @@
             method: 'DELETE',
             headers: { Accept: 'application/json', 'X-CSRF-TOKEN': CSRF },
         })
-        .then(r => r.json())
-        .then(res => {
-            if (res.error) { alert(res.error); return; }
-            cargarRoles();
-        })
-        .catch(() => alert('Error al eliminar el rol.'));
+            .then(r => r.json())
+            .then(res => {
+                if (res.error) { alert(res.error); return; }
+                cargarRoles();
+            })
+            .catch(() => alert('Error al eliminar el rol.'));
     }
 
     // ── Helpers ──────────────────────────────────────────────
@@ -478,9 +478,9 @@
     }
 
     function showErr(id, msg) { const e = $(id); if (e) e.textContent = msg; }
-    function clearErr(id)    { const e = $(id); if (e) e.textContent = ''; }
+    function clearErr(id) { const e = $(id); if (e) e.textContent = ''; }
     function esc(str) {
-        return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
     // ── Boot ─────────────────────────────────────────────────

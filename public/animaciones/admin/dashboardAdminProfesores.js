@@ -149,7 +149,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    if (btnAgregarProfesor) btnAgregarProfesor.addEventListener('click', abrirModalProfesor);
+    const PERMISOS_PR = window.PERMISOS_PROFESORES || { edit: false };
+    if (btnAgregarProfesor && PERMISOS_PR.edit) btnAgregarProfesor.addEventListener('click', abrirModalProfesor);
     if (btnCerrarModalProf) btnCerrarModalProf.addEventListener('click', cerrarModalProfesor);
     if (btnCancelarModalProf) btnCancelarModalProf.addEventListener('click', cerrarModalProfesor);
 

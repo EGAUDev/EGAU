@@ -3,9 +3,11 @@
 
     <div class="section-header">
         <h1 class="section-title">Profesores</h1>
-        <button class="btn-primary" id="btn-agregar-profesor">
-            <i class="ri-add-line"></i> Agregar Profesor
-        </button>
+       @if($permisos->profesor_edit ?? false)
+     <button class="btn-primary" id="btn-agregar-profesor">
+        <i class="ri-add-line"></i> Agregar Profesor
+    </button>
+        @endif
     </div>
 
     <div class="search-bar" style="margin-bottom: 24px;">

@@ -4,9 +4,11 @@
     <!-- Cabecera de sección -->
     <div class="section-header">
         <h1 class="section-title">Gestión de Alumnos</h1>
-        <button class="btn-primary" id="btn-agregar">
-            <i class="ri-add-line"></i> Agregar Alumno
-        </button>
+        @if($permisos->alumno_edit ?? false)
+            <button class="btn-primary" id="btn-agregar">
+                <i class="ri-add-line"></i> Agregar Alumno
+            </button>
+        @endif  
     </div>
 
     <!-- Tarjeta de tabla -->

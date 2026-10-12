@@ -42,6 +42,18 @@ Route::get('/contacto', function () {
 Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
 Route::post('/login', [AuthController::class, 'login'])->name('login.post');
 
+// ── Logout — fuera del grupo middleware ───────────────────────────────
+Route::post('/logout', function () {
+    $token = session('token');
+    if ($token) {
+        $tokenHash = hash('sha256', explode('|', $token)[1] ?? $token);
+        \Laravel\Sanctum\PersonalAccessToken::where('token', $tokenHash)->delete();
+    }
+    session()->flush();
+    session()->regenerate();
+    return redirect()->route('login');
+})->name('logout');
+
 Route::post('/guardar-token', function (Request $request) {
     session([
         'token'         => $request->input('token'),
@@ -55,7 +67,13 @@ Route::post('/guardar-token', function (Request $request) {
 })->name('guardar.token');
 
 Route::middleware(VerificarToken::class)->group(function () {
+
     Route::get('/dashboardAdmin', function () {
+        // 🔒 Bloquear alumnos
+        if (session('tipo') === 'alumno') {
+            return redirect()->route('dashboard.alumno');
+        }
+
         $alumnos = Alumno::leftJoin('sede', 'alumno.id_sede', '=', 'sede.id_sede')
             ->select('alumno.*', 'sede.nombre as nombre_sede')
             ->orderBy('alumno.id_alumno', 'asc')
@@ -68,18 +86,22 @@ Route::middleware(VerificarToken::class)->group(function () {
             ->select('personal.*', 'rol.nombre as nombre_rol')
             ->orderBy('personal.id_personal', 'asc')
             ->get();
-       $sedes = DB::table('sede')->orderBy('id_sede')->get(['id_sede', 'nombre']);
+        $sedes = DB::table('sede')->orderBy('id_sede')->get(['id_sede', 'nombre']);
         $roles = DB::table('rol')->get(['id_rol', 'nombre']);
         $token = session('token');
-$permisosData = session('permisos');
-$permisos = $permisosData ? (object) array_map(fn($v) => filter_var($v, FILTER_VALIDATE_BOOLEAN), $permisosData) : (object)[];
-$administrativo = filter_var(session('administrativo', false), FILTER_VALIDATE_BOOLEAN);
-$tipo = session('tipo', 'personal');
-$idProfesor = session('id_profesor');
-return view('dashboardAdmin', compact('alumnos', 'profesores', 'personal', 'sedes', 'roles', 'permisos', 'administrativo', 'tipo', 'idProfesor'));
+        $permisosData = session('permisos');
+        $permisos = $permisosData ? (object) array_map(fn($v) => filter_var($v, FILTER_VALIDATE_BOOLEAN), $permisosData) : (object)[];
+        $administrativo = filter_var(session('administrativo', false), FILTER_VALIDATE_BOOLEAN);
+        $tipo = session('tipo', 'personal');
+        $idProfesor = session('id_profesor');
+        return view('dashboardAdmin', compact('alumnos', 'profesores', 'personal', 'sedes', 'roles', 'permisos', 'administrativo', 'tipo', 'idProfesor'));
     })->name('dashboard.admin');
 
     Route::get('/dashboardAlumno', function () {
+        // 🔒 Bloquear personal y profesores
+        if (session('tipo') !== 'alumno') {
+            return redirect()->route('dashboard.admin');
+        }
         return view('dashboardAlumno');
     })->name('dashboard.alumno');
 
@@ -94,7 +116,7 @@ return view('dashboardAdmin', compact('alumnos', 'profesores', 'personal', 'sede
     Route::get('/admin/sedes/{id}',    [AdminController::class, 'obtenerSede']);
     Route::post('/admin/sedes',        [AdminController::class, 'registrarSede']);
     Route::put('/admin/sedes/{id}',    [AdminController::class, 'editarSede']);
-    Route::delete('/admin/sedes/{id}', [AdminController::class, 'eliminarSede']);   
+    Route::delete('/admin/sedes/{id}', [AdminController::class, 'eliminarSede']);
 
     // ── Facturas ──────────────────────────────────────────────────────
     Route::get('/admin/facturas',                [FacturaController::class, 'listar']);
@@ -116,15 +138,15 @@ return view('dashboardAdmin', compact('alumnos', 'profesores', 'personal', 'sede
     Route::put('/admin/extraescolares/{id}',                 [ExtraescolarController::class, 'editar']);
     Route::delete('/admin/extraescolares/{id}',              [ExtraescolarController::class, 'eliminar']);
 
-    // ── Niveles ──────────────────────────────────────────────────────
-    Route::get('/admin/niveles/alumnos',                  [NivelesController::class, 'listar']);
-    Route::get('/admin/niveles/grupos',                   [NivelesController::class, 'grupos']);
-    Route::put('/admin/niveles/alumnos/{id}/puntaje',     [NivelesController::class, 'editarPuntaje']);
+    // ── Niveles ───────────────────────────────────────────────────────
+    Route::get('/admin/niveles/alumnos',              [NivelesController::class, 'listar']);
+    Route::get('/admin/niveles/grupos',               [NivelesController::class, 'grupos']);
+    Route::put('/admin/niveles/alumnos/{id}/puntaje', [NivelesController::class, 'editarPuntaje']);
 
     // ── Grupos ────────────────────────────────────────────────────────
     Route::get('/admin/grupos/buscar',         [AdminController::class, 'buscarGrupos']);
     Route::post('/admin/grupos/registrar',     [AdminController::class, 'registrarGrupo']);
-    Route::get('/admin/grupos/{id}/ver',   [AdminController::class, 'verGrupo']);
+    Route::get('/admin/grupos/{id}/ver',       [AdminController::class, 'verGrupo']);
     Route::get('/admin/grupos/{id}',           [AdminController::class, 'obtenerGrupo']);
     Route::put('/admin/grupos/{id}',           [AdminController::class, 'editarGrupo']);
     Route::delete('/admin/grupos/{id}',        [AdminController::class, 'eliminarGrupo']);
@@ -137,67 +159,66 @@ return view('dashboardAdmin', compact('alumnos', 'profesores', 'personal', 'sede
     Route::delete('/admin/cursos/{id}',        [AdminController::class, 'eliminarCurso']);
 
     // ── Dashboard Status ──────────────────────────────────────────────
-    Route::get('/admin/status/datos',          [AdminController::class, 'obtenerStatus']);
+    Route::get('/admin/status/datos', [AdminController::class, 'obtenerStatus']);
 
     // ── Rutas genéricas — DESPUÉS de las específicas ──────────────────
-    Route::get('/admin/buscar/{tipo}',          [AdminController::class, 'buscarUsuarios']);
-    Route::get('/admin/obtener/{tipo}/{id}',    [AdminController::class, 'obtenerUsuario']);
-    Route::post('/admin/registrar',             [AdminController::class, 'registrarUsuario']);
-    Route::put('/admin/editar/{tipo}/{id}',     [AdminController::class, 'editarUsuario']);
-    Route::delete('/admin/eliminar/{tipo}/{id}',[AdminController::class, 'eliminarUsuario']);
+    Route::get('/admin/buscar/{tipo}',           [AdminController::class, 'buscarUsuarios']);
+    Route::get('/admin/obtener/{tipo}/{id}',     [AdminController::class, 'obtenerUsuario']);
+    Route::post('/admin/registrar',              [AdminController::class, 'registrarUsuario']);
+    Route::put('/admin/editar/{tipo}/{id}',      [AdminController::class, 'editarUsuario']);
+    Route::delete('/admin/eliminar/{tipo}/{id}', [AdminController::class, 'eliminarUsuario']);
 
     // ── Perfil personal ───────────────────────────────────────────────
     Route::get('/personal/perfil',          [PersonalProfileController::class, 'show']);
     Route::put('/personal/perfil',          [PersonalProfileController::class, 'update']);
     Route::put('/personal/perfil/password', [PersonalProfileController::class, 'updatePassword']);
 
-    Route::get('/alumno/perfil', [AlumnoProfileController::class, 'show']);
-    Route::put('/alumno/perfil', [AlumnoProfileController::class, 'update']);
-    Route::put('/alumno/perfil/password', [AlumnoProfileController::class, 'updatePassword']);
-    
-    Route::get('/api/alumno/grupos', [App\Http\Controllers\AlumnoGruposController::class, 'index']);
-    Route::post('/api/alumno/grupos/{id}/{accion}', [App\Http\Controllers\AlumnoGruposController::class, 'accion']);
-    
-    Route::get('/api/alumno/pagos', [App\Http\Controllers\AlumnoPagosController::class, 'index']);
-    
-Route::get('/profesor/perfil', function () {
-    $idProfesor = session('id_profesor');
-    if (!$idProfesor) return response()->json(['error' => 'No autorizado'], 401);
-    $profesor = DB::table('profesor')->where('id_profesor', $idProfesor)->first();
-    if (!$profesor) return response()->json(['error' => 'No encontrado'], 404);
-    return response()->json($profesor);
-});
+    Route::get('/alumno/perfil',            [AlumnoProfileController::class, 'show']);
+    Route::put('/alumno/perfil',            [AlumnoProfileController::class, 'update']);
+    Route::put('/alumno/perfil/password',   [AlumnoProfileController::class, 'updatePassword']);
 
+    Route::get('/api/alumno/grupos',                              [App\Http\Controllers\AlumnoGruposController::class, 'index']);
+    Route::post('/api/alumno/grupos/{id}/{accion}',               [App\Http\Controllers\AlumnoGruposController::class, 'accion']);
 
-Route::put('/profesor/perfil', function (Request $request) {
-    $idProfesor = session('id_profesor');
-    if (!$idProfesor) return response()->json(['error' => 'No autorizado'], 401);
-    DB::table('profesor')->where('id_profesor', $idProfesor)->update([
-        'nombre'            => $request->nombre,
-        'apellido_p'        => $request->apellido_p,
-        'apellido_m'        => $request->apellido_m,
-        'telefono'          => $request->telefono,
-        'email'             => $request->email,
-        'fecha_nacimiento'  => $request->fecha_nacimiento,
-        'genero'            => $request->genero,
-        'estado_residencia' => $request->estado_residencia,
-        'ciudad'            => $request->ciudad,
-        'calle'             => $request->calle,
-        'codigo_postal'     => $request->codigo_postal,
-        'fecha_modificacion'=> now(),
-    ]);
-    return response()->json(['message' => 'Perfil actualizado correctamente.']);
-});
+    Route::get('/api/alumno/pagos',                               [App\Http\Controllers\AlumnoPagosController::class, 'index']);
 
-Route::put('/profesor/perfil/password', function (Request $request) {
-    $idProfesor = session('id_profesor');
-    if (!$idProfesor) return response()->json(['error' => 'No autorizado'], 401);
-    $nueva = $request->contrasena_nueva;
-    if (!$nueva || strlen($nueva) < 6)
-        return response()->json(['error' => 'Mínimo 6 caracteres.'], 422);
-    DB::table('profesor')->where('id_profesor', $idProfesor)
-        ->update(['contraseña' => \Illuminate\Support\Facades\Hash::make($nueva)]);
-    return response()->json(['message' => 'Contraseña actualizada correctamente.']);
-});
-    
+    Route::get('/profesor/perfil', function () {
+        $idProfesor = session('id_profesor');
+        if (!$idProfesor) return response()->json(['error' => 'No autorizado'], 401);
+        $profesor = DB::table('profesor')->where('id_profesor', $idProfesor)->first();
+        if (!$profesor) return response()->json(['error' => 'No encontrado'], 404);
+        return response()->json($profesor);
+    });
+
+    Route::put('/profesor/perfil', function (Request $request) {
+        $idProfesor = session('id_profesor');
+        if (!$idProfesor) return response()->json(['error' => 'No autorizado'], 401);
+        DB::table('profesor')->where('id_profesor', $idProfesor)->update([
+            'nombre'            => $request->nombre,
+            'apellido_p'        => $request->apellido_p,
+            'apellido_m'        => $request->apellido_m,
+            'telefono'          => $request->telefono,
+            'email'             => $request->email,
+            'fecha_nacimiento'  => $request->fecha_nacimiento,
+            'genero'            => $request->genero,
+            'estado_residencia' => $request->estado_residencia,
+            'ciudad'            => $request->ciudad,
+            'calle'             => $request->calle,
+            'codigo_postal'     => $request->codigo_postal,
+            'fecha_modificacion'=> now(),
+        ]);
+        return response()->json(['message' => 'Perfil actualizado correctamente.']);
+    });
+
+    Route::put('/profesor/perfil/password', function (Request $request) {
+        $idProfesor = session('id_profesor');
+        if (!$idProfesor) return response()->json(['error' => 'No autorizado'], 401);
+        $nueva = $request->contrasena_nueva;
+        if (!$nueva || strlen($nueva) < 6)
+            return response()->json(['error' => 'Mínimo 6 caracteres.'], 422);
+        DB::table('profesor')->where('id_profesor', $idProfesor)
+            ->update(['contraseña' => \Illuminate\Support\Facades\Hash::make($nueva)]);
+        return response()->json(['message' => 'Contraseña actualizada correctamente.']);
+    });
+
 });
