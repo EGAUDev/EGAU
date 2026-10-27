@@ -49,6 +49,7 @@ class AdminController extends Controller
             $rules['id_sede'] = 'required|integer';
         } elseif ($tipo === 'personal') {
             $rules['id_rol'] = 'required|integer';
+            $rules['id_sede'] = 'nullable|integer|exists:sede,id_sede';
         }
 
         $validator = Validator::make($request->all(), $rules);
@@ -114,8 +115,11 @@ class AdminController extends Controller
         $usuario->contraseña = Hash::make($request->input('contraseña'));
         $usuario->estatus = $request->input('estatus', true);
 
-        DB::transaction(function () use ($usuario, $tipo) {
+        DB::transaction(function () use ($usuario, $tipo, $request) {
             $usuario->save();
+            if ($tipo === 'personal' && $request->filled('id_sede')) {
+                self::asignarSedePersonal($usuario->getKey(), (int) $request->id_sede);
+            }
             SincronizadorCore::persona($tipo, $usuario->getKey(), true);
         });
 
@@ -166,6 +170,7 @@ class AdminController extends Controller
             $rules['puntaje'] = 'nullable|integer';
         } elseif ($tipo === 'personal') {
             $rules['id_rol'] = 'nullable|integer';
+            $rules['id_sede'] = 'nullable|integer|exists:sede,id_sede';
         }
 
         // El formulario de alumnos manda el puntaje como "puntos" (igual que en el alta)
@@ -232,6 +237,9 @@ class AdminController extends Controller
 
         DB::transaction(function () use ($usuario, $tipo, $request) {
             $usuario->save();
+            if ($tipo === 'personal' && $request->filled('id_sede')) {
+                self::asignarSedePersonal($usuario->getKey(), (int) $request->id_sede);
+            }
             SincronizadorCore::persona($tipo, $usuario->getKey(), $request->filled('contraseña'));
         });
 
@@ -239,6 +247,16 @@ class AdminController extends Controller
             'message' => ucfirst($tipo) . ' actualizado exitosamente',
             'usuario' => $usuario
         ]);
+    }
+
+    /** El formulario maneja una sola sede: si no es una de las que ya tiene, reemplaza las anteriores. */
+    private static function asignarSedePersonal(int $idPersonal, int $idSede): void
+    {
+        $tiene = DB::table('usuariosede')->where('id_personal', $idPersonal)->where('id_sede', $idSede)->exists();
+        if (!$tiene) {
+            DB::table('usuariosede')->where('id_personal', $idPersonal)->delete();
+            DB::table('usuariosede')->insert(['id_personal' => $idPersonal, 'id_sede' => $idSede]);
+        }
     }
 
     public function eliminarUsuario($tipo, $id)
@@ -293,6 +311,17 @@ class AdminController extends Controller
         }
 
         $usuario = DB::query()->fromSub(LecturaCore::personas($tipo), $tipo)->where("id_{$tipo}", (int) $id)->first();
+
+        // El personal guarda su sede aparte (usuariosede)
+        if ($usuario && $tipo === 'personal') {
+            $sede = DB::query()->fromSub(LecturaCore::sedesPersonal(), 'us')
+                ->joinSub(LecturaCore::sedes(), 'sede', 'us.id_sede', '=', 'sede.id_sede')
+                ->where('us.id_personal', (int) $id)
+                ->orderBy('us.fecha_asignacion')->orderBy('us.id_sede')
+                ->select('us.id_sede', 'sede.nombre as nombre_sede')->first();
+            $usuario->id_sede = $sede->id_sede ?? null;
+            $usuario->nombre_sede = $sede->nombre_sede ?? null;
+        }
 
         if (!$usuario) {
             return response()->json(['error' => 'No encontrado'], 404);

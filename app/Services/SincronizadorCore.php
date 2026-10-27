@@ -241,8 +241,9 @@ class SincronizadorCore
         DB::table('core.usuario')->where('id', $idUsuario)->where('estado', '!=', 'suspendido')
             ->update(['estado' => $algunoActivo ? 'activo' : 'inactivo']);
 
-        // 4. Roles del personal
+        // 4. Sedes y roles del personal
         if ($tabla === 'personal') {
+            self::sedesDePersonal($id, $idPersona);
             self::rolesDePersonal($id, (int) $idUsuario);
         }
 
@@ -360,6 +361,29 @@ class SincronizadorCore
         DB::table('core.usuario_rol')->where('id_sede', $idCore)->delete();
         DB::table('core.sede')->where('id', $idCore)->delete();
         DB::table('migracion.mapa')->where('tabla_origen', 'sede')->where('id_origen', $idSede)->delete();
+    }
+
+    /** core.perfil_sede = las sedes de usuariosede del personal. */
+    private static function sedesDePersonal(int $idPersonal, int $idPersona): void
+    {
+        $deseadas = [];
+        foreach (DB::table('usuariosede')->where('id_personal', $idPersonal)->get() as $us) {
+            if (!self::mapa('sede', (int) $us->id_sede)) {
+                self::sede((int) $us->id_sede);
+            }
+            $deseadas[self::mapa('sede', (int) $us->id_sede)] = $us->fecha_asignacion;
+        }
+
+        DB::table('core.perfil_sede')->where('id_persona', $idPersona)->where('tipo', 'personal')
+            ->whereNotIn('id_sede', array_keys($deseadas))->delete();
+        $actuales = DB::table('core.perfil_sede')->where('id_persona', $idPersona)->where('tipo', 'personal')->pluck('id_sede')->all();
+        foreach ($deseadas as $idSede => $fecha) {
+            if (!in_array($idSede, $actuales)) {
+                DB::table('core.perfil_sede')->insert([
+                    'id_persona' => $idPersona, 'tipo' => 'personal', 'id_sede' => $idSede, 'asignado_en' => $fecha ?? now(),
+                ]);
+            }
+        }
     }
 
     /** Rol administrativo -> asignación global; si no, una por sede de usuariosede (o la del perfil). */

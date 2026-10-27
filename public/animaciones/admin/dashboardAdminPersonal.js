@@ -383,6 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     fecha_nacimiento: peFecha ? peFecha.value : '',
                     genero: peGenero ? peGenero.value : '',
                     id_rol: peRol ? parseInt(peRol.value) : null,
+                    id_sede: peSede && peSede.value ? parseInt(peSede.value) : null,
                     estado_residencia: peEstado ? peEstado.value : '',
                     ciudad: peCiudad ? peCiudad.value.trim() : '',
                     calle: calleCompleta,
@@ -557,6 +558,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (info.id_rol) {
                             const optR = document.querySelector(`#dropdown-pe-rol .form-option[data-value="${info.id_rol}"]`);
                             if (optR) optR.click();
+                        }
+                        if (info.id_sede) {
+                            const optS = document.querySelector(`#dropdown-pe-sede .form-option[data-value="${info.id_sede}"]`);
+                            if (optS) optS.click();
                         }
 
                         if (info.estatus !== undefined) {
