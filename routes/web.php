@@ -9,6 +9,7 @@ use App\Http\Controllers\PersonalProfileController;
 use App\Http\Controllers\AlumnoProfileController;
 use App\Http\Middleware\VerificarToken;
 use App\Services\AccesoCore;
+use App\Services\SincronizadorCore;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
@@ -213,20 +214,26 @@ Route::middleware(VerificarToken::class)->group(function () {
     Route::put('/profesor/perfil', function (Request $request) {
         $idProfesor = session('id_profesor');
         if (!$idProfesor) return response()->json(['error' => 'No autorizado'], 401);
-        DB::table('profesor')->where('id_profesor', $idProfesor)->update([
-            'nombre'            => $request->nombre,
-            'apellido_p'        => $request->apellido_p,
-            'apellido_m'        => $request->apellido_m,
-            'telefono'          => $request->telefono,
-            'email'             => $request->email,
-            'fecha_nacimiento'  => $request->fecha_nacimiento,
-            'genero'            => $request->genero,
-            'estado_residencia' => $request->estado_residencia,
-            'ciudad'            => $request->ciudad,
-            'calle'             => $request->calle,
-            'codigo_postal'     => $request->codigo_postal,
-            'fecha_modificacion'=> now(),
-        ]);
+        if ($request->filled('email') && SincronizadorCore::correoOcupado($request->email, 'profesor', (int) $idProfesor)) {
+            return response()->json(['errors' => ['email' => ['Ese correo ya tiene una cuenta en el sistema.']]], 422);
+        }
+        DB::transaction(function () use ($request, $idProfesor) {
+            DB::table('profesor')->where('id_profesor', $idProfesor)->update([
+                'nombre'            => $request->nombre,
+                'apellido_p'        => $request->apellido_p,
+                'apellido_m'        => $request->apellido_m,
+                'telefono'          => $request->telefono,
+                'email'             => $request->email,
+                'fecha_nacimiento'  => $request->fecha_nacimiento,
+                'genero'            => $request->genero,
+                'estado_residencia' => $request->estado_residencia,
+                'ciudad'            => $request->ciudad,
+                'calle'             => $request->calle,
+                'codigo_postal'     => $request->codigo_postal,
+                'fecha_modificacion'=> now(),
+            ]);
+            SincronizadorCore::persona('profesor', (int) $idProfesor);
+        });
         return response()->json(['message' => 'Perfil actualizado correctamente.']);
     });
 
@@ -236,8 +243,11 @@ Route::middleware(VerificarToken::class)->group(function () {
         $nueva = $request->contrasena_nueva;
         if (!$nueva || strlen($nueva) < 6)
             return response()->json(['error' => 'Mínimo 6 caracteres.'], 422);
-        DB::table('profesor')->where('id_profesor', $idProfesor)
-            ->update(['contraseña' => \Illuminate\Support\Facades\Hash::make($nueva)]);
+        DB::transaction(function () use ($idProfesor, $nueva) {
+            DB::table('profesor')->where('id_profesor', $idProfesor)
+                ->update(['contraseña' => \Illuminate\Support\Facades\Hash::make($nueva)]);
+            SincronizadorCore::persona('profesor', (int) $idProfesor, true);
+        });
         return response()->json(['message' => 'Contraseña actualizada correctamente.']);
     });
 

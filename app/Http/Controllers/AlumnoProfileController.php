@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Sanctum\PersonalAccessToken;
 use App\Models\Alumno;
+use App\Services\SincronizadorCore;
 
 use App\Models\Tutor;
 
@@ -127,6 +128,10 @@ public function show()
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        if (SincronizadorCore::correoOcupado($request->email, 'alumno', $alumno->id_alumno)) {
+            return response()->json(['errors' => ['email' => ['Ese correo ya tiene una cuenta en el sistema.']]], 422);
+        }
+
         $alumno->nombre = $request->nombre;
         $alumno->apellido_p = $request->apellido_p;
         $alumno->apellido_m = $request->apellido_m;
@@ -136,7 +141,10 @@ public function show()
         $alumno->ciudad = $request->ciudad;
         $alumno->estado_residencia = $request->estado_residencia;
         $alumno->codigo_postal = $request->codigo_postal;
-        $alumno->save();
+        DB::transaction(function () use ($alumno) {
+            $alumno->save();
+            SincronizadorCore::persona('alumno', $alumno->id_alumno);
+        });
 
         return response()->json(['message' => 'Perfil actualizado correctamente.']);
     }
@@ -165,7 +173,10 @@ public function show()
         }
 
         $alumno->contraseña = Hash::make($request->contrasena_nueva);
-        $alumno->save();
+        DB::transaction(function () use ($alumno) {
+            $alumno->save();
+            SincronizadorCore::persona('alumno', $alumno->id_alumno, true);
+        });
 
         return response()->json(['message' => 'Contraseña actualizada correctamente.']);
     }

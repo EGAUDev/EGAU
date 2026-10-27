@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Sanctum\PersonalAccessToken;
 use App\Models\Personal;
+use App\Services\SincronizadorCore;
 
 class PersonalProfileController extends Controller
 {
@@ -63,6 +64,10 @@ return response()->json([
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        if (SincronizadorCore::correoOcupado($request->email, 'personal', $p->id_personal)) {
+            return response()->json(['errors' => ['email' => ['Ese correo ya tiene una cuenta en el sistema.']]], 422);
+        }
+
         $p->nombre             = $request->nombre;
         $p->apellido_p         = $request->apellido_p;
         $p->apellido_m         = $request->apellido_m;
@@ -71,7 +76,10 @@ return response()->json([
         $p->fecha_nacimiento   = $request->fecha_nacimiento;
         $p->genero             = $request->genero;
         $p->fecha_modificacion = now();
-        $p->save();
+        DB::transaction(function () use ($p) {
+            $p->save();
+            SincronizadorCore::persona('personal', $p->id_personal);
+        });
 
         return response()->json(['message' => 'Perfil actualizado correctamente.']);
     }
@@ -101,7 +109,10 @@ return response()->json([
 
         $p->contraseña         = Hash::make($request->contrasena_nueva);
         $p->fecha_modificacion = now();
-        $p->save();
+        DB::transaction(function () use ($p) {
+            $p->save();
+            SincronizadorCore::persona('personal', $p->id_personal, true);
+        });
 
         return response()->json(['message' => 'Contraseña actualizada correctamente.']);
     }

@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Rol;
 use App\Models\Permiso;
+use App\Services\SincronizadorCore;
 
 class RolController extends Controller
 {
@@ -97,6 +98,7 @@ public function crear(Request $request)
     $administrativo = $esAdmin ? filter_var($request->input('administrativo', false), FILTER_VALIDATE_BOOLEAN) : false;
 
     try {
+        DB::beginTransaction();
         $permiso = new Permiso();
         $this->llenarPermiso($permiso, $request);
         $permiso->save();
@@ -111,8 +113,12 @@ public function crear(Request $request)
         $rol->fecha_modificacion = now();
         $rol->save();
 
+        SincronizadorCore::rol($rol->id_rol);
+        DB::commit();
+
         return response()->json(['message' => 'Rol creado correctamente.', 'id_rol' => $rol->id_rol], 201);
     } catch (\Throwable $e) {
+        DB::rollBack();
         return response()->json(['error' => 'Error al crear el rol: ' . $e->getMessage()], 500);
     }
 }
@@ -149,6 +155,7 @@ public function crear(Request $request)
     $esAdmin = filter_var(session('administrativo', false), FILTER_VALIDATE_BOOLEAN);
 
     try {
+        DB::beginTransaction();
         $permiso = Permiso::find($rol->id_permiso);
         if ($permiso) {
             $this->llenarPermiso($permiso, $request);
@@ -166,8 +173,12 @@ public function crear(Request $request)
 
         $rol->save();
 
+        SincronizadorCore::rol($rol->id_rol);
+        DB::commit();
+
         return response()->json(['message' => 'Rol actualizado correctamente.']);
     } catch (\Throwable $e) {
+        DB::rollBack();
         return response()->json(['error' => 'Error al actualizar el rol: ' . $e->getMessage()], 500);
     }
 }
@@ -194,15 +205,19 @@ public function crear(Request $request)
     }
 
     try {
+        DB::beginTransaction();
         $idPermiso = $rol->id_permiso;
+        SincronizadorCore::eliminarRol($rol->id_rol);
         $rol->delete();
 
         if ($idPermiso) {
             Permiso::find($idPermiso)?->delete();
         }
+        DB::commit();
 
         return response()->json(['message' => 'Rol eliminado correctamente.']);
     } catch (\Throwable $e) {
+        DB::rollBack();
         return response()->json(['error' => 'Error al eliminar: ' . $e->getMessage()], 500);
     }
 }

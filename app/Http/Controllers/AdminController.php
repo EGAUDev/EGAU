@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use App\Models\Alumno;
 use App\Models\Profesor;
 use App\Models\Personal;
+use App\Services\SincronizadorCore;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 
@@ -52,6 +54,10 @@ class AdminController extends Controller
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        if (SincronizadorCore::correoOcupado($request->email)) {
+            return response()->json(['errors' => ['email' => ['Ese correo ya tiene una cuenta en el sistema.']]], 422);
         }
 
         // Asignación de propiedades manualmente respetando modelos existentes
@@ -107,7 +113,10 @@ class AdminController extends Controller
         $usuario->contraseña = Hash::make($request->input('contraseña'));
         $usuario->estatus = $request->input('estatus', true);
 
-        $usuario->save();
+        DB::transaction(function () use ($usuario, $tipo) {
+            $usuario->save();
+            SincronizadorCore::persona($tipo, $usuario->getKey(), true);
+        });
 
         return response()->json([
             'message' => 'Usuario registrado exitosamente',
@@ -164,6 +173,10 @@ class AdminController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        if ($request->filled('email') && SincronizadorCore::correoOcupado($request->email, $tipo, (int) $id)) {
+            return response()->json(['errors' => ['email' => ['Ese correo ya tiene una cuenta en el sistema.']]], 422);
+        }
+
         $fillableFields = [
             'nombre',
             'apellido_p',
@@ -211,7 +224,10 @@ class AdminController extends Controller
             $usuario->id_rol = $request->id_rol;
         }
 
-        $usuario->save();
+        DB::transaction(function () use ($usuario, $tipo, $request) {
+            $usuario->save();
+            SincronizadorCore::persona($tipo, $usuario->getKey(), $request->filled('contraseña'));
+        });
 
         return response()->json([
             'message' => ucfirst($tipo) . ' actualizado exitosamente',
@@ -237,10 +253,15 @@ class AdminController extends Controller
             return response()->json(['error' => 'Usuario no encontrado'], 404);
         }
 
-        $usuario->delete();
+        // Regla v2.2: nadie se borra, solo se inactiva (y se puede reactivar editando su estatus)
+        DB::transaction(function () use ($usuario, $tipo) {
+            $usuario->estatus = false;
+            $usuario->save();
+            SincronizadorCore::persona($tipo, $usuario->getKey());
+        });
 
         return response()->json([
-            'message' => ucfirst($tipo) . ' eliminado exitosamente'
+            'message' => ucfirst($tipo) . ' dado de baja exitosamente'
         ]);
     }
 
@@ -485,7 +506,10 @@ class AdminController extends Controller
         $sede->telefono = $request->telefono;
         $sede->email = $request->email;
         $sede->estatus = true;
-        $sede->save();
+        DB::transaction(function () use ($sede) {
+            $sede->save();
+            SincronizadorCore::sede($sede->id_sede);
+        });
 
         return response()->json(['message' => 'Sede registrada correctamente.', 'id' => $sede->id_sede]);
     }
@@ -536,7 +560,10 @@ class AdminController extends Controller
         $sede->calle = $request->calle;
         $sede->telefono = $request->telefono;
         $sede->email = $request->email;
-        $sede->save();
+        DB::transaction(function () use ($sede) {
+            $sede->save();
+            SincronizadorCore::sede($sede->id_sede);
+        });
 
         return response()->json(['message' => 'Sede actualizada correctamente.']);
     }
@@ -547,8 +574,13 @@ class AdminController extends Controller
         if (!$sede)
             return response()->json(['error' => 'Sede no encontrada.'], 404);
 
-        $sede->delete();
-        return response()->json(['message' => 'Sede eliminada correctamente.']);
+        // Regla v2.2: la sede se cierra (inactiva), no se borra
+        DB::transaction(function () use ($sede) {
+            $sede->estatus = false;
+            $sede->save();
+            SincronizadorCore::sede($sede->id_sede);
+        });
+        return response()->json(['message' => 'Sede dada de baja correctamente.']);
     }
 
     // =========================================================
