@@ -710,7 +710,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnEliminar = e.target.closest('.btn-eliminar-alumno');
         if (btnEliminar) {
             const id = btnEliminar.getAttribute('data-id');
-            if (confirm('¿Dar de baja a este alumno? Quedará inactivo y podrás reactivarlo editando su estatus.')) {
+            if (confirm('¿Seguro que deseas eliminar este alumno de forma permanente?')) {
                 const tokenMeta = document.querySelector('meta[name="csrf-token"]');
                 fetch(`/admin/eliminar/alumno/${id}`, {
                     method: 'DELETE',

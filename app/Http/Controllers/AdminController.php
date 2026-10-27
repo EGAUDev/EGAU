@@ -258,15 +258,22 @@ class AdminController extends Controller
             return response()->json(['error' => 'Usuario no encontrado'], 404);
         }
 
-        // Regla v2.2: nadie se borra, solo se inactiva (y se puede reactivar editando su estatus)
-        DB::transaction(function () use ($usuario, $tipo) {
-            $usuario->estatus = false;
-            $usuario->save();
-            SincronizadorCore::persona($tipo, $usuario->getKey());
-        });
+        try {
+            DB::transaction(function () use ($usuario, $tipo, $id) {
+                $usuario->delete();
+                SincronizadorCore::eliminarPersona($tipo, (int) $id);
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() === '23503') {
+                return response()->json([
+                    'error' => 'No se puede eliminar porque tiene registros relacionados (grupos, pagos, inscripciones...). Puedes darlo de baja cambiando su estatus a inactivo.'
+                ], 409);
+            }
+            throw $e;
+        }
 
         return response()->json([
-            'message' => ucfirst($tipo) . ' dado de baja exitosamente'
+            'message' => ucfirst($tipo) . ' eliminado exitosamente'
         ]);
     }
 
@@ -579,13 +586,20 @@ class AdminController extends Controller
         if (!$sede)
             return response()->json(['error' => 'Sede no encontrada.'], 404);
 
-        // Regla v2.2: la sede se cierra (inactiva), no se borra
-        DB::transaction(function () use ($sede) {
-            $sede->estatus = false;
-            $sede->save();
-            SincronizadorCore::sede($sede->id_sede);
-        });
-        return response()->json(['message' => 'Sede dada de baja correctamente.']);
+        try {
+            DB::transaction(function () use ($sede, $id) {
+                $sede->delete();
+                SincronizadorCore::eliminarSede((int) $id);
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() === '23503') {
+                return response()->json([
+                    'error' => 'No se puede eliminar la sede porque tiene alumnos, profesores, personal o grupos asignados.'
+                ], 409);
+            }
+            throw $e;
+        }
+        return response()->json(['message' => 'Sede eliminada correctamente.']);
     }
 
     // =========================================================

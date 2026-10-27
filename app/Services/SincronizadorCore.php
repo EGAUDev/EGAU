@@ -246,6 +246,67 @@ class SincronizadorCore
         }
     }
 
+    /**
+     * Quita de v2.2 un registro que se borró de public. Si la persona ya no
+     * tiene ningún otro perfil, se borra también su cuenta y la persona.
+     */
+    public static function eliminarPersona(string $tabla, int $id): void
+    {
+        $idPersona = self::mapa($tabla, $id);
+        if (!$idPersona) {
+            return;
+        }
+
+        DB::table('core.perfil')->where('id_persona', $idPersona)->where('tipo', $tabla)
+            ->whereRaw("atributos->>'id_legacy' = ?", [(string) $id])->delete();
+        DB::table('migracion.mapa')->where('tabla_origen', $tabla)->where('id_origen', $id)->delete();
+
+        $idUsuario = DB::table('core.usuario')->where('id_persona', $idPersona)->value('id');
+
+        if (DB::table('core.perfil')->where('id_persona', $idPersona)->exists()) {
+            // Sigue siendo alumno/profesor/personal por otro registro: solo se ajusta la cuenta
+            if ($idUsuario && $tabla === 'personal') {
+                $legacy = DB::table('core.rol')->where('clave', 'like', 'legacy\_%')->pluck('id');
+                DB::table('core.usuario_rol')->where('id_usuario', $idUsuario)->whereIn('id_rol', $legacy)->delete();
+            }
+            if ($idUsuario) {
+                $algunoActivo = DB::table('core.perfil')->where('id_persona', $idPersona)->where('estado', 'activo')->exists();
+                DB::table('core.usuario')->where('id', $idUsuario)->where('estado', '!=', 'suspendido')
+                    ->update(['estado' => $algunoActivo ? 'activo' : 'inactivo']);
+            }
+            return;
+        }
+
+        if ($idUsuario) {
+            DB::table('core.usuario_rol')->where('otorgado_por', $idUsuario)->update(['otorgado_por' => null]);
+            DB::table('core.usuario_rol')->where('id_usuario', $idUsuario)->delete();
+            DB::table('core.usuario')->where('id', $idUsuario)->delete();
+        }
+        DB::table('core.persona')->where('id', $idPersona)->delete();
+    }
+
+    /** Quita de v2.2 una sede que se borró de public. */
+    public static function eliminarSede(int $idSede): void
+    {
+        $idCore = self::mapa('sede', $idSede);
+        if (!$idCore) {
+            return;
+        }
+
+        // Perfiles que tenían esta sede solo como sede de respaldo pasan a otra sede
+        $otra = DB::table('migracion.mapa as m')->join('core.sede as s', 's.id', '=', 'm.id_nuevo')
+            ->where('m.tabla_origen', 'sede')->where('m.id_nuevo', '!=', $idCore)
+            ->orderByDesc('s.activa')->orderBy('m.id_origen')->value('m.id_nuevo');
+        if ($otra) {
+            DB::table('core.perfil')->where('id_sede', $idCore)->update(['id_sede' => $otra]);
+        }
+
+        DB::table('core.perfil_sede')->where('id_sede', $idCore)->delete();
+        DB::table('core.usuario_rol')->where('id_sede', $idCore)->delete();
+        DB::table('core.sede')->where('id', $idCore)->delete();
+        DB::table('migracion.mapa')->where('tabla_origen', 'sede')->where('id_origen', $idSede)->delete();
+    }
+
     /** Rol administrativo -> asignación global; si no, una por sede de usuariosede (o la del perfil). */
     private static function rolesDePersonal(int $idPersonal, int $idUsuario): void
     {

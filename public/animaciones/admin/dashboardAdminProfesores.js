@@ -645,7 +645,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnEliminar = e.target.closest('.btn-profesor-eliminar');
         if (btnEliminar) {
             const id = btnEliminar.getAttribute('data-id');
-            if (confirm('¿Dar de baja a este profesor? Quedará inactivo y podrás reactivarlo editando su estatus.')) {
+            if (confirm('¿Seguro que deseas eliminar este profesor de forma permanente?')) {
                 const tokenMeta = document.querySelector('meta[name="csrf-token"]');
                 fetch(`/admin/eliminar/profesor/${id}`, {
                     method: 'DELETE',
