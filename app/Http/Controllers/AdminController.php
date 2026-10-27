@@ -167,6 +167,11 @@ class AdminController extends Controller
             $rules['id_rol'] = 'nullable|integer';
         }
 
+        // El formulario de alumnos manda el puntaje como "puntos" (igual que en el alta)
+        if (in_array($tipo, ['alumno', 'profesor']) && !$request->has('puntaje') && $request->has('puntos')) {
+            $request->merge(['puntaje' => $request->input('puntos')]);
+        }
+
         $validator = Validator::make($request->all(), $rules);
 
         if ($validator->fails()) {
