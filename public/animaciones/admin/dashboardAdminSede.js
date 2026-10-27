@@ -384,7 +384,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnEliminar = e.target.closest('.btn-eliminar-sede');
         if (btnEliminar) {
             const id = btnEliminar.getAttribute('data-id');
-            if (confirm('¿Seguro que deseas eliminar esta sede de forma permanente?')) {
+            if (confirm('¿Dar de baja esta sede? Quedará como inactiva.')) {
                 fetch(`/admin/sedes/${id}`, {
                     method: 'DELETE',
                     credentials: 'same-origin',

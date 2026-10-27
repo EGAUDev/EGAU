@@ -576,7 +576,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const btnEliminar = e.target.closest('.btn-eliminar-personal');
         if (btnEliminar) {
             const id = btnEliminar.getAttribute('data-id');
-            if (confirm('¿Seguro que deseas eliminar este registro de personal de forma permanente?')) {
+            if (confirm('¿Dar de baja a este registro de personal? Quedará inactivo y podrás reactivarlo editando su estatus.')) {
                 const tokenMeta = document.querySelector('meta[name="csrf-token"]');
                 fetch(`/admin/eliminar/personal/${id}`, {
                     method: 'DELETE',

@@ -97,6 +97,12 @@ return [
             'prefix_indexes' => true,
             'search_path' => 'public',
             'sslmode' => env('DB_SSLMODE', 'prefer'),
+            // El pooler de Neon (host "-pooler") no reconoce el DEALLOCATE que PDO
+            // manda al terminar cada consulta preparada; dentro de una transacción
+            // eso la aborta en silencio (error 25P02). Sin prepares con nombre, no hay DEALLOCATE.
+            'options' => extension_loaded('pdo_pgsql') ? [
+                PDO::PGSQL_ATTR_DISABLE_PREPARES => true,
+            ] : [],
         ],
 
         'sqlsrv' => [
