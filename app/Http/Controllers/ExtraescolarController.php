@@ -180,7 +180,16 @@ class ExtraescolarController extends Controller
             ], 409);
         }
 
-        $actividad->delete();
+        try {
+            $actividad->delete();
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() === '23503') {
+                return response()->json([
+                    'error' => 'No se puede eliminar porque la actividad tiene historial de inscripciones o pagos. Puedes desactivarla cambiando su estatus a inactivo.'
+                ], 409);
+            }
+            throw $e;
+        }
 
         return response()->json(['message' => 'Actividad eliminada correctamente.']);
     }

@@ -260,6 +260,10 @@ class AdminController extends Controller
 
         try {
             DB::transaction(function () use ($usuario, $tipo, $id) {
+                // Las sedes asignadas al personal (usuariosede) no son historial: se quitan con él.
+                if ($tipo === 'personal') {
+                    DB::table('usuariosede')->where('id_personal', (int) $id)->delete();
+                }
                 $usuario->delete();
                 SincronizadorCore::eliminarPersona($tipo, (int) $id);
             });
@@ -828,8 +832,21 @@ class AdminController extends Controller
                 'error' => "No se puede eliminar: hay {$activos} inscripción(es) activa(s) en este grupo."
             ], 422);
 
-        \Illuminate\Support\Facades\DB::table('horario')->where('id_grupo', (int) $id)->delete();
-        \App\Models\Academico\Grupo::destroy((int) $id);
+        // Si el grupo tiene historial (inscripciones dadas de baja o facturas) la BD no deja borrarlo;
+        // en ese caso no se toca nada, ni siquiera los horarios.
+        try {
+            \Illuminate\Support\Facades\DB::transaction(function () use ($id) {
+                \Illuminate\Support\Facades\DB::table('horario')->where('id_grupo', (int) $id)->delete();
+                \App\Models\Academico\Grupo::destroy((int) $id);
+            });
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() === '23503') {
+                return response()->json([
+                    'error' => 'No se puede eliminar porque el grupo tiene historial de inscripciones o pagos. Puedes desactivarlo cambiando su estatus a inactivo.'
+                ], 409);
+            }
+            throw $e;
+        }
 
         return response()->json(['message' => 'Grupo eliminado correctamente.']);
     }
@@ -996,7 +1013,16 @@ $alumnos = \Illuminate\Support\Facades\DB::table('inscripcion')
                 'error' => "No se puede eliminar: hay {$activos} grupo(s) activo(s) asociado(s) a este curso."
             ], 422);
 
-        \App\Models\Academico\Curso::destroy((int) $id);
+        try {
+            \App\Models\Academico\Curso::destroy((int) $id);
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() === '23503') {
+                return response()->json([
+                    'error' => 'No se puede eliminar porque el curso tiene grupos registrados (aunque estén inactivos). Puedes desactivarlo cambiando su estatus a inactivo.'
+                ], 409);
+            }
+            throw $e;
+        }
         return response()->json(['message' => 'Curso eliminado correctamente.']);
     }
 
