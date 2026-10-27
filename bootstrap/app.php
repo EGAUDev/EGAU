@@ -15,6 +15,7 @@ return Application::configure(basePath: dirname(__DIR__))
         // Registrar el alias del middleware para usarlo en rutas
         $middleware->alias([
             'verificar.token' => \App\Http\Middleware\VerificarToken::class,
+            'permiso'         => \App\Http\Middleware\TienePermiso::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

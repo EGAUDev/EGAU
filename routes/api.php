@@ -19,7 +19,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::middleware(VerificarToken::class)->group(function () {
-    Route::post('/admin/registrar',              [AdminController::class, 'registrarUsuario']);
-    Route::put('/admin/editar/{tipo}/{id}',      [AdminController::class, 'editarUsuario']);
-    Route::delete('/admin/eliminar/{tipo}/{id}', [AdminController::class, 'eliminarUsuario']);
+    Route::post('/admin/registrar',              [AdminController::class, 'registrarUsuario'])->middleware('permiso:{tipo}.editar');
+    Route::put('/admin/editar/{tipo}/{id}',      [AdminController::class, 'editarUsuario'])->middleware('permiso:{tipo}.editar');
+    Route::delete('/admin/eliminar/{tipo}/{id}', [AdminController::class, 'eliminarUsuario'])->middleware('permiso:{tipo}.editar,global');
 });

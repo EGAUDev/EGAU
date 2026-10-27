@@ -137,6 +137,28 @@ class AccesoCore
         );
     }
 
+    /** Claves de core.permiso que hoy le dan sus roles vigentes (ej. "alumno.ver"). */
+    public static function permisos(int $idUsuario): array
+    {
+        return array_column(
+            DB::select('SELECT DISTINCT permiso FROM core.v_permiso_efectivo WHERE id_usuario = ?', [$idUsuario]),
+            'permiso'
+        );
+    }
+
+    /** Tiene algún rol vigente sin sede (alcance global): es lo que la app llama "administrativo". */
+    public static function esGlobal(int $idUsuario): bool
+    {
+        return (bool) DB::selectOne(
+            "SELECT EXISTS (
+                SELECT 1 FROM core.usuario_rol ur JOIN core.rol r ON r.id = ur.id_rol AND r.activo
+                 WHERE ur.id_usuario = ? AND ur.id_sede IS NULL
+                   AND (ur.vigente_hasta IS NULL OR ur.vigente_hasta >= CURRENT_DATE)
+             ) AS global",
+            [$idUsuario]
+        )->global;
+    }
+
     /**
      * Lo que la sesión necesita para pintar el dashboard, con los mismos
      * nombres que antes: permisos (banderas *_ver / *_edit), administrativo
@@ -144,10 +166,7 @@ class AccesoCore
      */
     public static function contexto(int $idUsuario, string $tipo, ?int $idSedeCore): array
     {
-        $claves = array_column(
-            DB::select('SELECT DISTINCT permiso FROM core.v_permiso_efectivo WHERE id_usuario = ?', [$idUsuario]),
-            'permiso'
-        );
+        $claves = self::permisos($idUsuario);
 
         $permisos = null;
         if ($claves) {
@@ -157,14 +176,7 @@ class AccesoCore
             }
         }
 
-        $administrativo = (bool) DB::selectOne(
-            "SELECT EXISTS (
-                SELECT 1 FROM core.usuario_rol ur JOIN core.rol r ON r.id = ur.id_rol AND r.activo
-                 WHERE ur.id_usuario = ? AND ur.id_sede IS NULL
-                   AND (ur.vigente_hasta IS NULL OR ur.vigente_hasta >= CURRENT_DATE)
-             ) AS global",
-            [$idUsuario]
-        )->global;
+        $administrativo = self::esGlobal($idUsuario);
 
         // Como antes, solo el personal trae sede en la sesión
         $idSede = null;
