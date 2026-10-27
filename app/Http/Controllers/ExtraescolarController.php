@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use App\Services\SincronizadorCore;
 use App\Models\Academico\Extraescolar;
 use App\Models\Academico\InscripcionExtraescolar;
 
@@ -110,7 +111,10 @@ class ExtraescolarController extends Controller
         $actividad->ubicacion        = $request->ubicacion;
         $actividad->descripcion      = $request->descripcion;
         $actividad->requisitos       = $request->requisitos;
-        $actividad->save();
+        DB::transaction(function () use ($actividad) {
+            $actividad->save();
+            SincronizadorCore::extraescolar((int) $actividad->id_extraescolar);
+        });
 
         return response()->json(['message' => 'Actividad creada correctamente.', 'id' => $actividad->id_extraescolar], 201);
     }
@@ -153,7 +157,10 @@ class ExtraescolarController extends Controller
         $actividad->ubicacion        = $request->ubicacion;
         $actividad->descripcion      = $request->descripcion;
         $actividad->requisitos       = $request->requisitos;
-        $actividad->save();
+        DB::transaction(function () use ($actividad) {
+            $actividad->save();
+            SincronizadorCore::extraescolar((int) $actividad->id_extraescolar);
+        });
 
         return response()->json(['message' => 'Actividad actualizada correctamente.']);
     }
@@ -181,7 +188,10 @@ class ExtraescolarController extends Controller
         }
 
         try {
-            $actividad->delete();
+            DB::transaction(function () use ($actividad, $id) {
+                $actividad->delete();
+                SincronizadorCore::eliminarExtraescolar((int) $id);
+            });
         } catch (\Illuminate\Database\QueryException $e) {
             if ($e->getCode() === '23503') {
                 return response()->json([
@@ -207,7 +217,10 @@ class ExtraescolarController extends Controller
         }
 
         $inscripcion->status = false;
-        $inscripcion->save();
+        DB::transaction(function () use ($inscripcion) {
+            $inscripcion->save();
+            SincronizadorCore::inscripcionExtra((int) $inscripcion->id_inscripcionextra);
+        });
 
         return response()->json(['message' => 'Alumno dado de baja correctamente.']);
     }

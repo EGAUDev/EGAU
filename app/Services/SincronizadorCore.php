@@ -426,7 +426,8 @@ class SincronizadorCore
             'subtotal'      => $total,
             'fecha_emision' => $f->fecha_emision,
             'fecha_limite'  => substr((string) $f->fecha_limite, 0, 10),
-            'id_inscripcion' => $f->id_inscripcion ? self::mapa('inscripcion', (int) $f->id_inscripcion) : null,
+            'id_inscripcion' => $f->id_inscripcion ? self::mapa('inscripcion', (int) $f->id_inscripcion)
+                : ($f->id_inscripcionextra ? self::mapa('inscripcionextra', (int) $f->id_inscripcionextra) : null),
         ];
 
         $idCargo = self::mapa('factura', $idFactura);
@@ -639,22 +640,164 @@ class SincronizadorCore
         }
 
         $activa = filter_var($i->estatus, FILTER_VALIDATE_BOOLEAN);
+        $actual = ($id = self::mapa('inscripcion', $idInscripcion))
+            ? DB::table('academico.inscripcion')->where('id', $id)->first() : null;
         $datos = [
             'id_alumno'   => $idAlumno,
             'id_grupo'    => $idGrupo,
             'id_sede'     => DB::table('academico.grupo')->where('id', $idGrupo)->value('id_sede'),
             'estado'      => $activa ? 'activa' : 'baja',
             'fecha_alta'  => $i->fecha_asignacion,
-            'fecha_baja'  => $activa ? null : ($i->fecha_baja ?? now()),
-            'motivo_baja' => $activa ? null : (self::texto($i->motivo_baja) ?? 'Baja registrada en v1'),
+            'fecha_baja'  => $activa ? null : ($i->fecha_baja ?? $actual?->fecha_baja ?? now()),
+            'motivo_baja' => $activa ? null : (self::texto($i->motivo_baja) ?? $actual?->motivo_baja ?? 'Baja registrada en v1'),
         ];
 
-        $idCore = self::mapa('inscripcion', $idInscripcion);
+        self::guardarInscripcion('inscripcion', $idInscripcion, $datos, $activa);
+    }
+
+    // ===================== EXTRAESCOLARES =====================
+
+    /**
+     * En v2.2 una extraescolar es un curso tipo 'extraescolar' con un grupo.
+     * v1 no le asigna sede ni profesor: el grupo va a la sede principal
+     * (la activa con id de v1 más bajo) y sin profesor. v1 no guarda horas:
+     * se toma una hora por semana.
+     */
+    public static function extraescolar(int $idExtra): void
+    {
+        $e = DB::table('extraescolar')->where('id_extraescolar', $idExtra)->first();
+        if (!$e) {
+            return;
+        }
+
+        $cursoDatos = [
+            'nombre'           => mb_substr(self::texto($e->nombre) ?? 'Extraescolar ' . $idExtra, 0, 100),
+            'tipo'             => 'extraescolar',
+            'duracion_semanas' => max(1, min(32767, (int) $e->duracion_semanas)),
+            'horas_totales'    => max(1, min(32767, (int) $e->duracion_semanas)),
+            'costo_base'       => max(0, round((float) ($e->costo_base ?? 0), 2)),
+            'descripcion'      => self::texto($e->descripcion),
+            'requisitos'       => self::texto($e->requisitos),
+            'activo'           => self::activo($e->estatus),
+        ];
+
+        $idCurso = self::mapa('extraescolar', $idExtra);
+        if ($idCurso && DB::table('academico.curso')->where('id', $idCurso)->exists()) {
+            DB::table('academico.curso')->where('id', $idCurso)->update($cursoDatos);
+        } else {
+            $idCurso = DB::table('academico.curso')->insertGetId($cursoDatos + ['clave' => 'E' . $idExtra]);
+            DB::table('migracion.mapa')->where('tabla_origen', 'extraescolar')->where('id_origen', $idExtra)->delete();
+            self::guardarMapa('extraescolar', $idExtra, $idCurso);
+        }
+
+        $idGrupo = self::mapa('extraescolar_grupo', $idExtra);
+        $grupo = $idGrupo ? DB::table('academico.grupo')->where('id', $idGrupo)->first() : null;
+        $idSede = $grupo->id_sede ?? self::sedePrincipal();
+
+        DB::table('academico.curso_sede')->updateOrInsert(
+            ['id_curso' => $idCurso, 'id_sede' => $idSede],
+            ['activo' => self::activo($e->estatus)]
+        );
+
+        $inicio = substr((string) $e->fecha_inicio, 0, 10);
+        $fin = substr((string) $e->fecha_fin, 0, 10);
+        if ($fin <= $inicio) {
+            $fin = \Carbon\Carbon::parse($inicio)->addDay()->toDateString();   // v2.2 pide fin posterior al inicio
+        }
+
+        $grupoDatos = [
+            'id_sede'      => $idSede,
+            'id_curso'     => $idCurso,
+            'id_periodo'   => self::periodo($inicio),
+            'fecha_inicio' => $inicio,
+            'fecha_fin'    => $fin,
+            'cupo_maximo'  => max(1, min(32767, (int) $e->cupo_maximo)),
+            'estado'       => self::activo($e->estatus) ? 'abierto' : 'cerrado',
+        ];
+
+        if ($grupo) {
+            DB::table('academico.grupo')->where('id', $idGrupo)->update($grupoDatos);
+        } else {
+            $codigo = 'EXT-' . $idExtra;
+            if (DB::table('academico.grupo')->where('id_sede', $idSede)->where('codigo', $codigo)->exists()) {
+                $codigo .= '-' . substr(md5(uniqid()), 0, 4);
+            }
+            $idGrupo = DB::table('academico.grupo')->insertGetId($grupoDatos + ['codigo' => $codigo]);
+            DB::table('migracion.mapa')->where('tabla_origen', 'extraescolar_grupo')->where('id_origen', $idExtra)->delete();
+            self::guardarMapa('extraescolar_grupo', $idExtra, $idGrupo);
+        }
+    }
+
+    public static function eliminarExtraescolar(int $idExtra): void
+    {
+        $idGrupo = self::mapa('extraescolar_grupo', $idExtra);
+        if ($idGrupo) {
+            DB::table('academico.grupo')->where('id', $idGrupo)->delete();
+        }
+        $idCurso = self::mapa('extraescolar', $idExtra);
+        if ($idCurso) {
+            DB::table('academico.curso')->where('id', $idCurso)->delete();
+        }
+        DB::table('migracion.mapa')->whereIn('tabla_origen', ['extraescolar', 'extraescolar_grupo'])->where('id_origen', $idExtra)->delete();
+    }
+
+    /** Copia una inscripción a extraescolar (status de v1) al grupo de esa extraescolar. */
+    public static function inscripcionExtra(int $idInscripcion): void
+    {
+        $i = DB::table('inscripcionextraescolar')->where('id_inscripcionextra', $idInscripcion)->first();
+        if (!$i) {
+            return;
+        }
+
+        $idAlumno = self::mapa('alumno', (int) $i->id_alumno);
+        if (!$idAlumno) {
+            self::persona('alumno', (int) $i->id_alumno);
+            $idAlumno = self::mapa('alumno', (int) $i->id_alumno);
+        }
+        if (!self::mapa('extraescolar_grupo', (int) $i->id_extraescolar)) {
+            self::extraescolar((int) $i->id_extraescolar);
+        }
+        $idGrupo = self::mapa('extraescolar_grupo', (int) $i->id_extraescolar);
+        if (!$idAlumno || !$idGrupo) {
+            return;
+        }
+
+        $activa = filter_var($i->status, FILTER_VALIDATE_BOOLEAN);
+        $actual = ($id = self::mapa('inscripcionextra', $idInscripcion))
+            ? DB::table('academico.inscripcion')->where('id', $id)->first() : null;
+        self::guardarInscripcion('inscripcionextra', $idInscripcion, [
+            'id_alumno'   => $idAlumno,
+            'id_grupo'    => $idGrupo,
+            'id_sede'     => DB::table('academico.grupo')->where('id', $idGrupo)->value('id_sede'),
+            'estado'      => $activa ? 'activa' : 'baja',
+            'fecha_alta'  => $i->fecha_asignacion,
+            // v1 no guarda cuándo ni por qué se dio de baja
+            'fecha_baja'  => $activa ? null : ($actual?->fecha_baja ?? now()),
+            'motivo_baja' => $activa ? null : ($actual?->motivo_baja ?? 'Baja registrada en v1'),
+        ], $activa);
+    }
+
+    /** Sede donde quedan las extraescolares (v1 no les asigna sede). */
+    private static function sedePrincipal(): int
+    {
+        return (int) DB::table('sede as s')
+            ->join('migracion.mapa as m', fn ($j) => $j->on('m.id_origen', '=', 's.id_sede')->where('m.tabla_origen', 'sede'))
+            ->orderByRaw('coalesce(s.estatus, true) desc')->orderBy('s.id_sede')->value('m.id_nuevo');
+    }
+
+    /**
+     * Guarda en academico.inscripcion (sirve para grupos y extraescolares). Si
+     * v2.2 la rechaza por cupo lleno queda en 'lista_espera', para no bloquear
+     * algo que v1 sí permitió; y liga a ella los cargos de su factura.
+     */
+    private static function guardarInscripcion(string $tablaMapa, int $idLegacy, array $datos, bool $activa): void
+    {
+        $idCore = self::mapa($tablaMapa, $idLegacy);
         if ($idCore && !DB::table('academico.inscripcion')->where('id', $idCore)->exists()) {
             $idCore = null;
         }
 
-        $guardar = function (array $d) use (&$idCore, $idInscripcion) {
+        $guardar = function (array $d) use (&$idCore) {
             if ($idCore) {
                 DB::table('academico.inscripcion')->where('id', $idCore)->update($d);
             } else {
@@ -668,20 +811,21 @@ class SincronizadorCore
             if ($e->getCode() === '23514' && $activa) {          // cupo lleno en v2.2
                 $guardar(['estado' => 'lista_espera'] + $datos);
             } elseif ($e->getCode() === '23505' && $activa) {    // ya hay otra activa del mismo alumno en el grupo
-                $guardar(['estado' => 'baja', 'fecha_baja' => now(), 'motivo_baja' => 'Inscripción repetida en v1'] + $datos);
+                $previa = $idCore ? DB::table('academico.inscripcion')->where('id', $idCore)->value('fecha_baja') : null;
+                $guardar(['estado' => 'baja', 'fecha_baja' => $previa ?? now(), 'motivo_baja' => 'Inscripción repetida en v1'] + $datos);
             } else {
                 throw $e;
             }
         }
 
-        DB::table('migracion.mapa')->where('tabla_origen', 'inscripcion')->where('id_origen', $idInscripcion)
+        DB::table('migracion.mapa')->where('tabla_origen', $tablaMapa)->where('id_origen', $idLegacy)
             ->where('id_nuevo', '!=', $idCore)->delete();
-        self::guardarMapa('inscripcion', $idInscripcion, $idCore);
+        self::guardarMapa($tablaMapa, $idLegacy, $idCore);
 
         // Los cargos de esta inscripción quedan ligados a ella
         $cargos = DB::table('factura as f')
             ->join('migracion.mapa as m', fn ($j) => $j->on('m.id_origen', '=', 'f.id_factura')->where('m.tabla_origen', 'factura'))
-            ->where('f.id_inscripcion', $idInscripcion)->pluck('m.id_nuevo');
+            ->where($tablaMapa === 'inscripcion' ? 'f.id_inscripcion' : 'f.id_inscripcionextra', $idLegacy)->pluck('m.id_nuevo');
         if ($cargos->isNotEmpty()) {
             DB::table('finanzas.cargo')->whereIn('id', $cargos)->where(fn ($q) => $q->whereNull('id_inscripcion')->orWhere('id_inscripcion', '!=', $idCore))
                 ->update(['id_inscripcion' => $idCore]);

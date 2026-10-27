@@ -327,6 +327,7 @@ class AlumnoController extends Controller
                 'vigencia'            => 'enproceso',
                 'concepto'            => 'Inscripción a actividad extraescolar: ' . $extra->nombre,
             ]);
+            SincronizadorCore::inscripcionExtra((int) $idInscripcion);
             SincronizadorCore::cargo((int) $factura->id_factura);
 
             DB::table('extraescolar')
@@ -365,23 +366,33 @@ class AlumnoController extends Controller
             return response()->json(['message' => 'Tu inscripción ya fue pagada. Para cancelarla comunícate con la sede.'], 409);
         }
 
-        if ($factura) {
-            DB::transaction(function () use ($factura) {
+        DB::transaction(function () use ($factura, $alumno, $id) {
+            if ($factura) {
                 DB::table('factura')
                     ->where('id_factura', $factura->id_factura)
                     ->update(['vigencia' => 'cancelado']);
                 SincronizadorCore::cargo((int) $factura->id_factura);
-            });
-        }
+            }
 
-        DB::table('inscripcionextraescolar')
-            ->where('id_alumno', $alumno->id_alumno)
-            ->where('id_extraescolar', $id)
-            ->update(['status' => false]);
+            $activas = DB::table('inscripcionextraescolar')
+                ->where('id_alumno', $alumno->id_alumno)
+                ->where('id_extraescolar', $id)
+                ->where('status', true)
+                ->pluck('id_inscripcionextra');
 
-        DB::table('extraescolar')
-            ->where('id_extraescolar', $id)
-            ->decrement('cupo_actual');
+            DB::table('inscripcionextraescolar')
+                ->where('id_alumno', $alumno->id_alumno)
+                ->where('id_extraescolar', $id)
+                ->update(['status' => false]);
+
+            foreach ($activas as $idInscripcion) {
+                SincronizadorCore::inscripcionExtra((int) $idInscripcion);
+            }
+
+            DB::table('extraescolar')
+                ->where('id_extraescolar', $id)
+                ->decrement('cupo_actual');
+        });
 
         return response()->json(['message' => 'Inscripción cancelada']);
     }
