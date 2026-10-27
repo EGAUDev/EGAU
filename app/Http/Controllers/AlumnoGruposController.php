@@ -171,6 +171,7 @@ class AlumnoGruposController extends Controller
                     'descripcion' => $curso->descripcion ?? 'Inscripción a curso',
                     'concepto' => 'Pago de inscripcion a grupo ' . $grupo->codigo_grupo
                 ], 'id_factura');
+                SincronizadorCore::inscripcion((int) $id_inscripcion);
                 SincronizadorCore::cargo((int) $id_factura);
             });
 
@@ -207,6 +208,7 @@ class AlumnoGruposController extends Controller
                     ->update(['estatus' => false]);
 
                 DB::table('grupo')->where('id_grupo', $id)->decrement('cupo_actual');
+                SincronizadorCore::inscripcion((int) $inscripcion->id_inscripcion);
 
                 if ($factura && $factura->vigencia !== 'pagado') {
                     DB::table('factura')

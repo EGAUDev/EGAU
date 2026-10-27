@@ -711,17 +711,20 @@ class AdminController extends Controller
         $grupo->fecha_fin    = $request->fecha_fin;
         $grupo->cupo_maximo  = $request->cupo_maximo;
         $grupo->estatus      = filter_var($request->input('estatus', true), FILTER_VALIDATE_BOOLEAN);
-        $grupo->save();
+        DB::transaction(function () use ($grupo, $request) {
+            $grupo->save();
 
-        foreach ($request->horarios as $h) {
-            \Illuminate\Support\Facades\DB::table('horario')->insert([
-                'id_grupo'    => $grupo->id_grupo,
-                'dia_semana'  => (int) $h['dia_semana'],
-                'hora_inicio' => $h['hora_inicio'],
-                'hora_fin'    => $h['hora_fin'],
-                'ubicacion'   => $h['ubicacion'] ?? '',
-            ]);
-        }
+            foreach ($request->horarios as $h) {
+                \Illuminate\Support\Facades\DB::table('horario')->insert([
+                    'id_grupo'    => $grupo->id_grupo,
+                    'dia_semana'  => (int) $h['dia_semana'],
+                    'hora_inicio' => $h['hora_inicio'],
+                    'hora_fin'    => $h['hora_fin'],
+                    'ubicacion'   => $h['ubicacion'] ?? '',
+                ]);
+            }
+            SincronizadorCore::grupo((int) $grupo->id_grupo);
+        });
 
         return response()->json(['message' => 'Grupo creado correctamente.', 'id' => $grupo->id_grupo]);
     }
@@ -804,18 +807,21 @@ class AdminController extends Controller
         $grupo->fecha_fin    = $request->fecha_fin;
         $grupo->cupo_maximo  = $request->cupo_maximo;
         $grupo->estatus      = filter_var($request->input('estatus', $grupo->estatus), FILTER_VALIDATE_BOOLEAN);
-        $grupo->save();
+        DB::transaction(function () use ($grupo, $request) {
+            $grupo->save();
 
-        \Illuminate\Support\Facades\DB::table('horario')->where('id_grupo', $grupo->id_grupo)->delete();
-        foreach ($request->horarios as $h) {
-            \Illuminate\Support\Facades\DB::table('horario')->insert([
-                'id_grupo'    => $grupo->id_grupo,
-                'dia_semana'  => (int) $h['dia_semana'],
-                'hora_inicio' => $h['hora_inicio'],
-                'hora_fin'    => $h['hora_fin'],
-                'ubicacion'   => $h['ubicacion'] ?? '',
-            ]);
-        }
+            \Illuminate\Support\Facades\DB::table('horario')->where('id_grupo', $grupo->id_grupo)->delete();
+            foreach ($request->horarios as $h) {
+                \Illuminate\Support\Facades\DB::table('horario')->insert([
+                    'id_grupo'    => $grupo->id_grupo,
+                    'dia_semana'  => (int) $h['dia_semana'],
+                    'hora_inicio' => $h['hora_inicio'],
+                    'hora_fin'    => $h['hora_fin'],
+                    'ubicacion'   => $h['ubicacion'] ?? '',
+                ]);
+            }
+            SincronizadorCore::grupo((int) $grupo->id_grupo);
+        });
 
         return response()->json(['message' => 'Grupo actualizado correctamente.']);
     }
@@ -838,6 +844,7 @@ class AdminController extends Controller
             \Illuminate\Support\Facades\DB::transaction(function () use ($id) {
                 \Illuminate\Support\Facades\DB::table('horario')->where('id_grupo', (int) $id)->delete();
                 \App\Models\Academico\Grupo::destroy((int) $id);
+                SincronizadorCore::eliminarGrupo((int) $id);
             });
         } catch (\Illuminate\Database\QueryException $e) {
             if ($e->getCode() === '23503') {
@@ -957,7 +964,10 @@ $alumnos = \Illuminate\Support\Facades\DB::table('inscripcion')
         $curso->estatus          = filter_var($request->input('estatus', true), FILTER_VALIDATE_BOOLEAN);
         $curso->descripcion      = $request->input('descripcion');
         $curso->requisitos       = $request->input('requisitos');
-        $curso->save();
+        DB::transaction(function () use ($curso) {
+            $curso->save();
+            SincronizadorCore::curso((int) $curso->id_curso);
+        });
 
         return response()->json(['message' => 'Curso creado correctamente.', 'id' => $curso->id_curso]);
     }
@@ -996,7 +1006,14 @@ $alumnos = \Illuminate\Support\Facades\DB::table('inscripcion')
         $curso->estatus          = filter_var($request->input('estatus', $curso->estatus), FILTER_VALIDATE_BOOLEAN);
         $curso->descripcion      = $request->input('descripcion', $curso->descripcion);
         $curso->requisitos       = $request->input('requisitos',  $curso->requisitos);
-        $curso->save();
+        DB::transaction(function () use ($curso) {
+            $curso->save();
+            SincronizadorCore::curso((int) $curso->id_curso);
+            // Cambiar la sede del curso cambia la sede de sus grupos en v2.2
+            foreach (DB::table('grupo')->where('id_curso', $curso->id_curso)->pluck('id_grupo') as $idGrupo) {
+                SincronizadorCore::grupo((int) $idGrupo);
+            }
+        });
 
         return response()->json(['message' => 'Curso actualizado correctamente.']);
     }
@@ -1014,7 +1031,10 @@ $alumnos = \Illuminate\Support\Facades\DB::table('inscripcion')
             ], 422);
 
         try {
-            \App\Models\Academico\Curso::destroy((int) $id);
+            DB::transaction(function () use ($id) {
+                \App\Models\Academico\Curso::destroy((int) $id);
+                SincronizadorCore::eliminarCurso((int) $id);
+            });
         } catch (\Illuminate\Database\QueryException $e) {
             if ($e->getCode() === '23503') {
                 return response()->json([

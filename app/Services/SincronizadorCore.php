@@ -4,11 +4,12 @@ namespace App\Services;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Copia al esquema v2.2 (core.*) cada alta o cambio de usuarios, sedes y
- * roles que las pantallas hacen en las tablas viejas de public.
+ * Copia al esquema v2.2 cada alta o cambio que las pantallas hacen en las
+ * tablas viejas de public: usuarios, sedes y roles (core.*), facturas
+ * (finanzas.*) y cursos, grupos e inscripciones (academico.*).
  *
- * Las tablas viejas se siguen escribiendo porque grupos, pagos, niveles y
- * extraescolares todavía apuntan a sus ids; v2.2 es lo que usa el login.
+ * Las tablas viejas se siguen escribiendo porque las pantallas todavía leen
+ * de ellas; v2.2 es lo que usa el login.
  * Hace por registro lo mismo que 01-migracion-auth.sql hace para todos,
  * así que ya no hay que volver a correr ese script tras cada cambio.
  * Llamar dentro de la misma transacción que el cambio en public.
@@ -425,6 +426,7 @@ class SincronizadorCore
             'subtotal'      => $total,
             'fecha_emision' => $f->fecha_emision,
             'fecha_limite'  => substr((string) $f->fecha_limite, 0, 10),
+            'id_inscripcion' => $f->id_inscripcion ? self::mapa('inscripcion', (int) $f->id_inscripcion) : null,
         ];
 
         $idCargo = self::mapa('factura', $idFactura);
@@ -466,6 +468,284 @@ class SincronizadorCore
     {
         foreach ($idsFactura as $id) {
             self::cargo((int) $id);
+        }
+    }
+
+    // ===================== CURSOS Y GRUPOS =====================
+
+    /** Copia un curso a academico.curso (tipo regular) y su sede a academico.curso_sede. */
+    public static function curso(int $idCurso): void
+    {
+        $c = DB::table('curso')->where('id_curso', $idCurso)->first();
+        if (!$c) {
+            return;
+        }
+
+        $datos = [
+            'nombre'           => mb_substr(self::texto($c->nombre) ?? 'Curso ' . $idCurso, 0, 100),
+            'id_nivel_minimo'  => self::nivelMinimo($c->nivel),
+            'duracion_semanas' => max(1, min(32767, (int) $c->duracion_semanas)),
+            'horas_totales'    => max(1, min(32767, (int) $c->horas_totales)),
+            'costo_base'       => max(0, round((float) ($c->costo_base ?? 0), 2)),
+            'descripcion'      => self::texto($c->descripcion),
+            'requisitos'       => self::texto($c->requisitos),
+            'activo'           => self::activo($c->estatus),
+        ];
+
+        $idCore = self::mapa('curso', $idCurso);
+        if ($idCore && DB::table('academico.curso')->where('id', $idCore)->exists()) {
+            DB::table('academico.curso')->where('id', $idCore)->update($datos);
+        } else {
+            $idCore = DB::table('academico.curso')->insertGetId($datos + ['clave' => 'C' . $idCurso, 'tipo' => 'regular']);
+            DB::table('migracion.mapa')->where('tabla_origen', 'curso')->where('id_origen', $idCurso)->delete();
+            self::guardarMapa('curso', $idCurso, $idCore);
+        }
+
+        // En v1 un curso pertenece a una sola sede
+        $idSede = $c->id_sede ? self::mapa('sede', (int) $c->id_sede) : null;
+        DB::table('academico.curso_sede')->where('id_curso', $idCore)
+            ->when($idSede, fn ($q) => $q->where('id_sede', '!=', $idSede))->delete();
+        if ($idSede) {
+            DB::table('academico.curso_sede')->updateOrInsert(
+                ['id_curso' => $idCore, 'id_sede' => $idSede],
+                ['activo' => self::activo($c->estatus)]
+            );
+        }
+    }
+
+    public static function eliminarCurso(int $idCurso): void
+    {
+        $idCore = self::mapa('curso', $idCurso);
+        if ($idCore) {
+            DB::table('academico.curso')->where('id', $idCore)->delete();
+        }
+        DB::table('migracion.mapa')->where('tabla_origen', 'curso')->where('id_origen', $idCurso)->delete();
+    }
+
+    /**
+     * Copia un grupo con sus horarios. La sede es la del curso (v1 no la guarda
+     * en el grupo); el periodo es el año de fecha_inicio. Los horarios se
+     * rehacen completos, como hace la pantalla de v1.
+     */
+    public static function grupo(int $idGrupo): void
+    {
+        $g = DB::table('grupo')->where('id_grupo', $idGrupo)->first();
+        if (!$g) {
+            return;
+        }
+
+        if (!self::mapa('curso', (int) $g->id_curso)) {
+            self::curso((int) $g->id_curso);
+        }
+        $idCurso = self::mapa('curso', (int) $g->id_curso);
+        $idProfesor = self::mapa('profesor', (int) $g->id_profesor);
+        if (!$idProfesor) {
+            self::persona('profesor', (int) $g->id_profesor);
+            $idProfesor = self::mapa('profesor', (int) $g->id_profesor);
+        }
+
+        $idSedeLegacy = DB::table('curso')->where('id_curso', $g->id_curso)->value('id_sede')
+            ?? DB::table('profesor')->where('id_profesor', $g->id_profesor)->value('id_sede');
+        $idSede = $idSedeLegacy ? self::mapa('sede', (int) $idSedeLegacy) : null;
+        $idSede ??= (int) DB::table('core.perfil')->where('id_persona', $idProfesor)->where('tipo', 'profesor')->value('id_sede');
+
+        $idCore = self::mapa('grupo', $idGrupo);
+        if ($idCore && !DB::table('academico.grupo')->where('id', $idCore)->exists()) {
+            $idCore = null;
+        }
+
+        // El código es único por sede en v2.2; si choca con otro grupo se le agrega el id de v1
+        $codigo = mb_substr(self::texto($g->codigo_grupo) ?? 'G' . $idGrupo, 0, 20);
+        $choca = DB::table('academico.grupo')->where('id_sede', $idSede)->where('codigo', $codigo)
+            ->when($idCore, fn ($q) => $q->where('id', '!=', $idCore))->exists();
+        if ($choca) {
+            $codigo = mb_substr($codigo, 0, 20 - strlen('-G' . $idGrupo)) . '-G' . $idGrupo;
+        }
+
+        $inicio = substr((string) $g->fecha_inicio, 0, 10);
+        $fin = substr((string) $g->fecha_fin, 0, 10);
+        if ($fin <= $inicio) {
+            $fin = \Carbon\Carbon::parse($inicio)->addDay()->toDateString();
+        }
+
+        $datos = [
+            'id_sede'      => $idSede,
+            'id_curso'     => $idCurso,
+            'id_profesor'  => $idProfesor,
+            'id_periodo'   => self::periodo($inicio),
+            'codigo'       => $codigo,
+            'fecha_inicio' => $inicio,
+            'fecha_fin'    => $fin,
+            'cupo_maximo'  => max(1, min(32767, (int) $g->cupo_maximo)),
+            'estado'       => self::activo($g->estatus) ? 'abierto' : 'cerrado',
+        ];
+
+        if ($idCore) {
+            DB::table('academico.grupo')->where('id', $idCore)->update($datos);
+            DB::table('academico.inscripcion')->where('id_grupo', $idCore)->where('id_sede', '!=', $idSede)->update(['id_sede' => $idSede]);
+        } else {
+            $idCore = DB::table('academico.grupo')->insertGetId($datos);
+            DB::table('migracion.mapa')->where('tabla_origen', 'grupo')->where('id_origen', $idGrupo)->delete();
+            self::guardarMapa('grupo', $idGrupo, $idCore);
+        }
+
+        DB::table('academico.horario')->where('id_grupo', $idCore)->delete();
+        $vistos = [];
+        foreach (DB::table('horario')->where('id_grupo', $idGrupo)->orderBy('id_horario')->get() as $h) {
+            $dia = (int) $h->dia_semana === 0 ? 7 : (int) $h->dia_semana;
+            $ini = substr((string) $h->hora_inicio, 0, 8);
+            $fi = substr((string) $h->hora_fin, 0, 8);
+            $llave = "$dia|$ini|$fi";
+            if ($dia < 1 || $dia > 7 || $fi <= $ini || isset($vistos[$llave])) {
+                continue;   // v1 a veces repite el mismo horario o lo deja vacío
+            }
+            $vistos[$llave] = true;
+            self::insertarHorario($idCore, $dia, $ini, $fi, self::aula($idSede, $h->ubicacion ?? null));
+        }
+    }
+
+    public static function eliminarGrupo(int $idGrupo): void
+    {
+        $idCore = self::mapa('grupo', $idGrupo);
+        if ($idCore) {
+            DB::table('academico.grupo')->where('id', $idCore)->delete();   // los horarios se borran en cascada
+        }
+        DB::table('migracion.mapa')->where('tabla_origen', 'grupo')->where('id_origen', $idGrupo)->delete();
+    }
+
+    /**
+     * Copia una inscripción. Activa en v1 = 'activa'; dada de baja = 'baja' con
+     * fecha y motivo (v2.2 los exige). Si v2.2 la rechaza por cupo lleno queda
+     * en 'lista_espera', para no bloquear algo que v1 sí permitió.
+     */
+    public static function inscripcion(int $idInscripcion): void
+    {
+        $i = DB::table('inscripcion')->where('id_inscripcion', $idInscripcion)->first();
+        if (!$i) {
+            return;
+        }
+
+        $idAlumno = self::mapa('alumno', (int) $i->id_alumno);
+        if (!$idAlumno) {
+            self::persona('alumno', (int) $i->id_alumno);
+            $idAlumno = self::mapa('alumno', (int) $i->id_alumno);
+        }
+        if (!self::mapa('grupo', (int) $i->id_grupo)) {
+            self::grupo((int) $i->id_grupo);
+        }
+        $idGrupo = self::mapa('grupo', (int) $i->id_grupo);
+        if (!$idAlumno || !$idGrupo) {
+            return;
+        }
+
+        $activa = filter_var($i->estatus, FILTER_VALIDATE_BOOLEAN);
+        $datos = [
+            'id_alumno'   => $idAlumno,
+            'id_grupo'    => $idGrupo,
+            'id_sede'     => DB::table('academico.grupo')->where('id', $idGrupo)->value('id_sede'),
+            'estado'      => $activa ? 'activa' : 'baja',
+            'fecha_alta'  => $i->fecha_asignacion,
+            'fecha_baja'  => $activa ? null : ($i->fecha_baja ?? now()),
+            'motivo_baja' => $activa ? null : (self::texto($i->motivo_baja) ?? 'Baja registrada en v1'),
+        ];
+
+        $idCore = self::mapa('inscripcion', $idInscripcion);
+        if ($idCore && !DB::table('academico.inscripcion')->where('id', $idCore)->exists()) {
+            $idCore = null;
+        }
+
+        $guardar = function (array $d) use (&$idCore, $idInscripcion) {
+            if ($idCore) {
+                DB::table('academico.inscripcion')->where('id', $idCore)->update($d);
+            } else {
+                $idCore = DB::table('academico.inscripcion')->insertGetId($d);
+            }
+        };
+
+        try {
+            DB::transaction(fn () => $guardar($datos));
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->getCode() === '23514' && $activa) {          // cupo lleno en v2.2
+                $guardar(['estado' => 'lista_espera'] + $datos);
+            } elseif ($e->getCode() === '23505' && $activa) {    // ya hay otra activa del mismo alumno en el grupo
+                $guardar(['estado' => 'baja', 'fecha_baja' => now(), 'motivo_baja' => 'Inscripción repetida en v1'] + $datos);
+            } else {
+                throw $e;
+            }
+        }
+
+        DB::table('migracion.mapa')->where('tabla_origen', 'inscripcion')->where('id_origen', $idInscripcion)
+            ->where('id_nuevo', '!=', $idCore)->delete();
+        self::guardarMapa('inscripcion', $idInscripcion, $idCore);
+
+        // Los cargos de esta inscripción quedan ligados a ella
+        $cargos = DB::table('factura as f')
+            ->join('migracion.mapa as m', fn ($j) => $j->on('m.id_origen', '=', 'f.id_factura')->where('m.tabla_origen', 'factura'))
+            ->where('f.id_inscripcion', $idInscripcion)->pluck('m.id_nuevo');
+        if ($cargos->isNotEmpty()) {
+            DB::table('finanzas.cargo')->whereIn('id', $cargos)->where(fn ($q) => $q->whereNull('id_inscripcion')->orWhere('id_inscripcion', '!=', $idCore))
+                ->update(['id_inscripcion' => $idCore]);
+        }
+    }
+
+    /** Nivel de v2.2 cuyo rating mínimo es el más alto que no pasa del puntaje que pide el curso. */
+    private static function nivelMinimo($puntaje): ?int
+    {
+        if ($puntaje === null || $puntaje === '') {
+            return null;
+        }
+        $id = DB::table('academico.nivel')->where('rating_minimo', '<=', (int) $puntaje)->orderByDesc('rating_minimo')->value('id');
+        return $id !== null ? (int) $id : null;
+    }
+
+    /** Periodo = año de inicio del grupo (v2.2 no permite periodos traslapados y v1 los escribe a mano). */
+    private static function periodo(string $fechaInicio): int
+    {
+        $anio = (int) substr($fechaInicio, 0, 4);
+        $id = DB::table('academico.periodo')->where('clave', (string) $anio)->value('id');
+        if ($id) {
+            return (int) $id;
+        }
+        $id = DB::table('academico.periodo')->whereRaw('vigencia @> ?::date', [$fechaInicio])->value('id');
+        if ($id) {
+            return (int) $id;
+        }
+        return (int) DB::table('academico.periodo')->insertGetId([
+            'clave' => (string) $anio, 'nombre' => 'Año ' . $anio,
+            'vigencia' => DB::raw("daterange('{$anio}-01-01', '" . ($anio + 1) . "-01-01')"),
+        ]);
+    }
+
+    /** Aula de la sede con ese nombre (la "ubicación" de v1); se crea si no existe. */
+    private static function aula(int $idSede, $ubicacion): ?int
+    {
+        $nombre = self::corto($ubicacion, 40);
+        if (!$nombre) {
+            return null;
+        }
+        $id = DB::table('core.aula')->where('id_sede', $idSede)->where('nombre', $nombre)->value('id');
+        return (int) ($id ?? DB::table('core.aula')->insertGetId(['id_sede' => $idSede, 'nombre' => $nombre]));
+    }
+
+    /**
+     * v2.2 no deja empalmar un aula ni a un profesor; v1 sí. Si el aula choca se
+     * guarda sin aula; si choca el profesor, ese horario se queda solo en v1.
+     */
+    private static function insertarHorario(int $idGrupo, int $dia, string $ini, string $fin, ?int $idAula): void
+    {
+        foreach (array_unique([$idAula, null], SORT_REGULAR) as $aula) {
+            try {
+                DB::transaction(fn () => DB::table('academico.horario')->insert([
+                    'id_grupo' => $idGrupo, 'id_aula' => $aula, 'dia_semana' => $dia,
+                    'horas' => DB::raw("academico.rango_hora('{$ini}'::time, '{$fin}'::time)"),
+                    'vigencia' => DB::raw("'empty'::daterange"),   // la pone el trigger con las fechas del grupo
+                ]));
+                return;
+            } catch (\Illuminate\Database\QueryException $e) {
+                if ($e->getCode() !== '23P01') {
+                    throw $e;
+                }
+            }
         }
     }
 
