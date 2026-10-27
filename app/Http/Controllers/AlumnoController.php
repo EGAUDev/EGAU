@@ -5,6 +5,7 @@ use Illuminate\Http\Request;
 use App\Models\Alumno;
 use App\Models\Academico\Factura;
 use Illuminate\Support\Facades\DB;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 
 class AlumnoController extends Controller
@@ -33,6 +34,12 @@ class AlumnoController extends Controller
         };
     }
 
+    /** Datos del alumno leídos de v2.2 (mismo id y columnas que public.alumno). */
+    private function alumnoV22(int $idAlumno): ?object
+    {
+        return DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')->where('id_alumno', $idAlumno)->first();
+    }
+
     public function inicio(Request $request)
     {
         $alumno = $request->user();
@@ -41,14 +48,15 @@ class AlumnoController extends Controller
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
+        $alumno = $this->alumnoV22($alumno->id_alumno) ?? $alumno;
         $puntaje = $alumno->puntaje ?? 0;
         $nivel = $this->calcularNivel($puntaje);
         $puntajeSiguiente = $this->puntajeSiguienteNivel($puntaje);
 
-        $horarios = DB::table('inscripcion')
-            ->join('grupo', 'inscripcion.id_grupo', '=', 'grupo.id_grupo')
-            ->join('curso', 'grupo.id_curso', '=', 'curso.id_curso')
-            ->join('horario', 'grupo.id_grupo', '=', 'horario.id_grupo')
+        $horarios = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
+            ->joinSub(LecturaCore::grupos(), 'grupo', 'inscripcion.id_grupo', '=', 'grupo.id_grupo')
+            ->joinSub(LecturaCore::cursos(), 'curso', 'grupo.id_curso', '=', 'curso.id_curso')
+            ->joinSub(LecturaCore::horarios(), 'horario', 'grupo.id_grupo', '=', 'horario.id_grupo')
             ->where('inscripcion.id_alumno', $alumno->id_alumno)
             ->where('inscripcion.estatus', true)
             ->select(
@@ -77,10 +85,10 @@ class AlumnoController extends Controller
                 return $h;
             });
 
-        $grupos = DB::table('inscripcion')
-            ->join('grupo', 'inscripcion.id_grupo', '=', 'grupo.id_grupo')
-            ->join('curso', 'grupo.id_curso', '=', 'curso.id_curso')
-            ->join('profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
+        $grupos = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
+            ->joinSub(LecturaCore::grupos(), 'grupo', 'inscripcion.id_grupo', '=', 'grupo.id_grupo')
+            ->joinSub(LecturaCore::cursos(), 'curso', 'grupo.id_curso', '=', 'curso.id_curso')
+            ->joinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
             ->where('inscripcion.id_alumno', $alumno->id_alumno)
             ->where('inscripcion.estatus', true)
             ->select(
@@ -93,9 +101,9 @@ class AlumnoController extends Controller
             )
             ->get();
 
-        $actInscripcion = DB::table('inscripcion')
-            ->join('grupo', 'inscripcion.id_grupo', '=', 'grupo.id_grupo')
-            ->join('curso', 'grupo.id_curso', '=', 'curso.id_curso')
+        $actInscripcion = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
+            ->joinSub(LecturaCore::grupos(), 'grupo', 'inscripcion.id_grupo', '=', 'grupo.id_grupo')
+            ->joinSub(LecturaCore::cursos(), 'curso', 'grupo.id_curso', '=', 'curso.id_curso')
             ->where('inscripcion.id_alumno', $alumno->id_alumno)
             ->select(
                 DB::raw("'inscripcion' as tipo"),
@@ -105,8 +113,8 @@ class AlumnoController extends Controller
             ->orderByDesc('inscripcion.fecha_asignacion')
             ->limit(3);
 
-        $actExtraescolar = DB::table('inscripcionextraescolar')
-            ->join('extraescolar', 'inscripcionextraescolar.id_extraescolar', '=', 'extraescolar.id_extraescolar')
+        $actExtraescolar = DB::query()->fromSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar')
+            ->joinSub(LecturaCore::extraescolares(), 'extraescolar', 'inscripcionextraescolar.id_extraescolar', '=', 'extraescolar.id_extraescolar')
             ->where('inscripcionextraescolar.id_alumno', $alumno->id_alumno)
             ->select(
                 DB::raw("'extraescolar' as tipo"),
@@ -116,7 +124,7 @@ class AlumnoController extends Controller
             ->orderByDesc('inscripcionextraescolar.fecha_asignacion')
             ->limit(3);
 
-        $actFactura = DB::table('factura')
+        $actFactura = DB::query()->fromSub(LecturaCore::facturas(), 'factura')
             ->where('id_alumno', $alumno->id_alumno)
             ->select(
                 DB::raw("'factura' as tipo"),
@@ -156,7 +164,8 @@ class AlumnoController extends Controller
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        $profesores = DB::table('profesor')
+        $alumno = $this->alumnoV22($alumno->id_alumno) ?? $alumno;
+        $profesores = DB::query()->fromSub(LecturaCore::personas('profesor'), 'profesor')
             ->where('profesor.id_sede', $alumno->id_sede)
             ->where('profesor.estatus', true)
             ->select(
@@ -173,8 +182,8 @@ class AlumnoController extends Controller
                 $p->nombre_completo = trim($p->nombre . ' ' . $p->apellido_p . ' ' . ($p->apellido_m ?? ''));
                 $p->inicial = strtoupper(mb_substr($p->nombre, 0, 1));
 
-                $especialidades = DB::table('grupo')
-                    ->join('curso', 'grupo.id_curso', '=', 'curso.id_curso')
+                $especialidades = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
+                    ->joinSub(LecturaCore::cursos(), 'curso', 'grupo.id_curso', '=', 'curso.id_curso')
                     ->where('grupo.id_profesor', $p->id_profesor)
                     ->where('grupo.estatus', true)
                     ->pluck('curso.nombre')
@@ -212,15 +221,15 @@ class AlumnoController extends Controller
             });
         }
 
-        $inscritos = DB::table('inscripcionextraescolar')
+        $inscritos = DB::query()->fromSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar')
             ->where('id_alumno', $alumno->id_alumno)
             ->where('status', true)
             ->pluck('id_extraescolar')
             ->toArray();
 
-        $misInscripciones = DB::table('inscripcionextraescolar')
-            ->join('extraescolar', 'inscripcionextraescolar.id_extraescolar', '=', 'extraescolar.id_extraescolar')
-            ->leftJoin('factura', 'factura.id_inscripcionextra', '=', 'inscripcionextraescolar.id_inscripcionextra')
+        $misInscripciones = DB::query()->fromSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar')
+            ->joinSub(LecturaCore::extraescolares(), 'extraescolar', 'inscripcionextraescolar.id_extraescolar', '=', 'extraescolar.id_extraescolar')
+            ->leftJoinSub(LecturaCore::facturas(), 'factura', 'factura.id_inscripcionextra', '=', 'inscripcionextraescolar.id_inscripcionextra')
             ->where('inscripcionextraescolar.id_alumno', $alumno->id_alumno)
             ->where('inscripcionextraescolar.status', true)
             ->select(
@@ -234,7 +243,7 @@ class AlumnoController extends Controller
             )
             ->get();
 
-        $catalogo = DB::table('extraescolar')
+        $catalogo = DB::query()->fromSub(LecturaCore::extraescolares(), 'extraescolar')
             ->where('estatus', true)
             ->where(function ($q) use ($inscritos) {
                 $q->whereRaw('cupo_actual < cupo_maximo')
@@ -259,8 +268,8 @@ class AlumnoController extends Controller
 
                 $e->vigencia_factura = null;
                 if ($e->inscrito) {
-                    $f = DB::table('factura')
-                        ->join('inscripcionextraescolar', 'factura.id_inscripcionextra', '=', 'inscripcionextraescolar.id_inscripcionextra')
+                    $f = DB::query()->fromSub(LecturaCore::facturas(), 'factura')
+                        ->joinSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar', 'factura.id_inscripcionextra', '=', 'inscripcionextraescolar.id_inscripcionextra')
                         ->where('inscripcionextraescolar.id_alumno', $alumno->id_alumno)
                         ->where('inscripcionextraescolar.id_extraescolar', $e->id_extraescolar)
                         ->where('inscripcionextraescolar.status', true)

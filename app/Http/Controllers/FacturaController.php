@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 use App\Models\Academico\Factura;
 use App\Models\Alumno;
@@ -22,12 +23,12 @@ class FacturaController extends Controller
         $tipo    = $request->query('tipo', '');  // 'grupo' | 'extraescolar' | ''
         $q       = $request->query('q', '');
 
-        $query = DB::table('factura')
-            ->leftJoin('alumno', 'factura.id_alumno', '=', 'alumno.id_alumno')
-            ->leftJoin('sede', 'alumno.id_sede', '=', 'sede.id_sede')
-            ->leftJoin('inscripcion', 'factura.id_inscripcion', '=', 'inscripcion.id_inscripcion')
-            ->leftJoin('inscripcionextraescolar', 'factura.id_inscripcionextra', '=', 'inscripcionextraescolar.id_inscripcionextra')
-            ->leftJoin('extraescolar', 'inscripcionextraescolar.id_extraescolar', '=', 'extraescolar.id_extraescolar')
+        $query = DB::query()->fromSub(LecturaCore::facturas(), 'factura')
+            ->leftJoinSub(LecturaCore::personas('alumno'), 'alumno', 'factura.id_alumno', '=', 'alumno.id_alumno')
+            ->leftJoinSub(LecturaCore::sedes(), 'sede', 'alumno.id_sede', '=', 'sede.id_sede')
+            ->leftJoinSub(LecturaCore::inscripciones(), 'inscripcion', 'factura.id_inscripcion', '=', 'inscripcion.id_inscripcion')
+            ->leftJoinSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar', 'factura.id_inscripcionextra', '=', 'inscripcionextraescolar.id_inscripcionextra')
+            ->leftJoinSub(LecturaCore::extraescolares(), 'extraescolar', 'inscripcionextraescolar.id_extraescolar', '=', 'extraescolar.id_extraescolar')
             ->select(
                 'factura.id_factura',
                 'factura.id_alumno',
@@ -103,12 +104,12 @@ class FacturaController extends Controller
     // -------------------------------------------------------
     public function obtener($id)
     {
-        $f = DB::table('factura')
-            ->leftJoin('alumno', 'factura.id_alumno', '=', 'alumno.id_alumno')
-            ->leftJoin('sede', 'alumno.id_sede', '=', 'sede.id_sede')
-            ->leftJoin('inscripcion', 'factura.id_inscripcion', '=', 'inscripcion.id_inscripcion')
-            ->leftJoin('inscripcionextraescolar', 'factura.id_inscripcionextra', '=', 'inscripcionextraescolar.id_inscripcionextra')
-            ->leftJoin('extraescolar', 'inscripcionextraescolar.id_extraescolar', '=', 'extraescolar.id_extraescolar')
+        $f = DB::query()->fromSub(LecturaCore::facturas(), 'factura')
+            ->leftJoinSub(LecturaCore::personas('alumno'), 'alumno', 'factura.id_alumno', '=', 'alumno.id_alumno')
+            ->leftJoinSub(LecturaCore::sedes(), 'sede', 'alumno.id_sede', '=', 'sede.id_sede')
+            ->leftJoinSub(LecturaCore::inscripciones(), 'inscripcion', 'factura.id_inscripcion', '=', 'inscripcion.id_inscripcion')
+            ->leftJoinSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar', 'factura.id_inscripcionextra', '=', 'inscripcionextraescolar.id_inscripcionextra')
+            ->leftJoinSub(LecturaCore::extraescolares(), 'extraescolar', 'inscripcionextraescolar.id_extraescolar', '=', 'extraescolar.id_extraescolar')
             ->select(
                 'factura.*',
                 DB::raw("CONCAT(alumno.nombre, ' ', alumno.apellido_p, ' ', COALESCE(alumno.apellido_m,'')) AS nombre_alumno"),

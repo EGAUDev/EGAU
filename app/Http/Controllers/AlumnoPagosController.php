@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 use Laravel\Sanctum\PersonalAccessToken;
 use App\Models\Alumno;
@@ -40,12 +41,15 @@ class AlumnoPagosController extends Controller
             });
         }
 
-        $facturas = Factura::where('id_alumno', $alumno->id_alumno)
+        $facturas = DB::query()->fromSub(LecturaCore::facturas(), 'factura')
+            ->where('id_alumno', $alumno->id_alumno)
             ->where('vigencia', '!=', 'cancelado')
             ->orderBy('fecha_emision', 'desc')
             ->get();
 
-        $sede = DB::table('sede')->where('id_sede', $alumno->id_sede)->first();
+        $idSede = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
+            ->where('id_alumno', $alumno->id_alumno)->value('id_sede');
+        $sede = DB::query()->fromSub(LecturaCore::sedes(), 'sede')->where('id_sede', $idSede)->first();
 
         return response()->json([
             'facturas' => $facturas,

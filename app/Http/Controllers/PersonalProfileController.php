@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Sanctum\PersonalAccessToken;
 use App\Models\Personal;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 
 class PersonalProfileController extends Controller
@@ -28,7 +29,10 @@ class PersonalProfileController extends Controller
         $p = $this->getPersonalActual();
         if (!$p) return response()->json(['error' => 'No autenticado'], 401);
 
-        $rol = DB::table('rol')->where('id_rol', $p->id_rol)->first();
+        $p = DB::query()->fromSub(LecturaCore::personas('personal'), 'personal')
+            ->where('id_personal', $p->id_personal)->first();
+        if (!$p) return response()->json(['error' => 'No encontrado'], 404);
+        $rol = DB::query()->fromSub(LecturaCore::roles(), 'rol')->where('id_rol', $p->id_rol)->first();
 return response()->json([
     'nombre'             => $p->nombre,
     'apellido_p'         => $p->apellido_p,

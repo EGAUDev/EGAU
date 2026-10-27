@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 use App\Models\Academico\Extraescolar;
 use App\Models\Academico\InscripcionExtraescolar;
@@ -18,10 +19,10 @@ class ExtraescolarController extends Controller
     {
         $q = $request->query('q', '');
 
-        $query = DB::table('extraescolar')
+        $query = DB::query()->fromSub(LecturaCore::extraescolares(), 'extraescolar')
             ->select(
                 'extraescolar.*',
-                DB::raw('(SELECT COUNT(*) FROM inscripcionextraescolar ie WHERE ie.id_extraescolar = extraescolar.id_extraescolar AND ie.status = true) AS inscritos_activos')
+                'extraescolar.cupo_actual AS inscritos_activos'
             )
             ->orderBy('extraescolar.id_extraescolar', 'desc');
 
@@ -45,7 +46,7 @@ class ExtraescolarController extends Controller
     // -------------------------------------------------------
     public function obtener($id)
     {
-        $actividad = DB::table('extraescolar')
+        $actividad = DB::query()->fromSub(LecturaCore::extraescolares(), 'extraescolar')
             ->where('id_extraescolar', (int) $id)
             ->first();
 
@@ -54,8 +55,8 @@ class ExtraescolarController extends Controller
         }
 
         // Alumnos inscritos activos
-        $inscritos = DB::table('inscripcionextraescolar')
-            ->join('alumno', 'inscripcionextraescolar.id_alumno', '=', 'alumno.id_alumno')
+        $inscritos = DB::query()->fromSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar')
+            ->joinSub(LecturaCore::personas('alumno'), 'alumno', 'inscripcionextraescolar.id_alumno', '=', 'alumno.id_alumno')
             ->select(
                 'inscripcionextraescolar.id_inscripcionextra',
                 'alumno.id_alumno',

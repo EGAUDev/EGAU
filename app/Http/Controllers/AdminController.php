@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Alumno;
 use App\Models\Profesor;
 use App\Models\Personal;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -291,11 +292,7 @@ class AdminController extends Controller
             return response()->json(['error' => 'Tipo inválido'], 400);
         }
 
-        $usuario = match ($tipo) {
-            'alumno' => Alumno::find($id),
-            'profesor' => Profesor::find($id),
-            'personal' => Personal::find($id),
-        };
+        $usuario = DB::query()->fromSub(LecturaCore::personas($tipo), $tipo)->where("id_{$tipo}", (int) $id)->first();
 
         if (!$usuario) {
             return response()->json(['error' => 'No encontrado'], 404);
@@ -321,15 +318,18 @@ class AdminController extends Controller
         $idRol = $request->query('id_rol', '');  // solo personal
 
         $query = match ($tipo) {
-            'alumno' => Alumno::leftJoin('sede', 'alumno.id_sede', '=', 'sede.id_sede')
+            'alumno' => DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
+                ->leftJoinSub(LecturaCore::sedes(), 'sede', 'alumno.id_sede', '=', 'sede.id_sede')
                 ->select('alumno.*', 'sede.nombre as nombre_sede')
                 ->orderBy('alumno.id_alumno', 'asc'),
-            'profesor' => Profesor::leftJoin('sede', 'profesor.id_sede', '=', 'sede.id_sede')
+            'profesor' => DB::query()->fromSub(LecturaCore::personas('profesor'), 'profesor')
+                ->leftJoinSub(LecturaCore::sedes(), 'sede', 'profesor.id_sede', '=', 'sede.id_sede')
                 ->select('profesor.*', 'sede.nombre as nombre_sede')
                 ->orderBy('profesor.id_profesor', 'asc'),
-            'personal' => Personal::leftJoin('rol', 'personal.id_rol', '=', 'rol.id_rol')
-                ->leftJoin('usuariosede', 'personal.id_personal', '=', 'usuariosede.id_personal')
-                ->leftJoin('sede', 'usuariosede.id_sede', '=', 'sede.id_sede')
+            'personal' => DB::query()->fromSub(LecturaCore::personas('personal'), 'personal')
+                ->leftJoinSub(LecturaCore::roles(), 'rol', 'personal.id_rol', '=', 'rol.id_rol')
+                ->leftJoinSub(LecturaCore::sedesPersonal(), 'usuariosede', 'personal.id_personal', '=', 'usuariosede.id_personal')
+                ->leftJoinSub(LecturaCore::sedes(), 'sede', 'usuariosede.id_sede', '=', 'sede.id_sede')
                 ->select('personal.*', 'rol.nombre as nombre_rol', 'usuariosede.id_sede', 'sede.nombre as nombre_sede')
                 ->orderBy('personal.id_personal', 'asc'),
         };
@@ -427,7 +427,7 @@ class AdminController extends Controller
                 'nombre' => trim("{$r->nombre} {$r->apellido_p} " . ($r->apellido_m ?? '')),
                 'email' => $r->email,
                 'estatus' => $r->estatus,
-                'info' => $r->toArray(),
+                'info' => (array) $r,
             ];
 
             if ($tipo === 'alumno') {
@@ -465,7 +465,7 @@ class AdminController extends Controller
         $q = $request->get('q', '');
         $estado = $request->get('estado_residencia', '');
 
-        $query = \App\Models\Sede::query();
+        $query = DB::query()->fromSub(LecturaCore::sedes(), 'sede');
 
         if ($q) {
             $query->where(function ($sub) use ($q) {
@@ -532,7 +532,7 @@ class AdminController extends Controller
 
     public function obtenerSede($id)
     {
-        $sede = \App\Models\Sede::find($id);
+        $sede = DB::query()->fromSub(LecturaCore::sedes(), 'sede')->where('id_sede', (int) $id)->first();
         if (!$sede)
             return response()->json(['error' => 'Sede no encontrada.'], 404);
 
@@ -615,9 +615,9 @@ class AdminController extends Controller
         $q = $request->query('q', '');
         $idProfesor = $request->query('id_profesor', '');
 
-        $grupos = \Illuminate\Support\Facades\DB::table('grupo')
-            ->join('curso',    'grupo.id_curso',    '=', 'curso.id_curso')
-            ->join('profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
+        $grupos = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
+            ->joinSub(LecturaCore::cursos(), 'curso',    'grupo.id_curso',    '=', 'curso.id_curso')
+            ->joinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
             ->selectRaw("
                 grupo.nombre,
                 grupo.id_grupo,
@@ -633,9 +633,7 @@ class AdminController extends Controller
                 curso.nombre AS nombre_curso,
                 profesor.nombre AS prof_nombre,
                 profesor.apellido_p AS prof_apellido,
-                (SELECT COUNT(*) FROM inscripcion
-                 WHERE inscripcion.id_grupo = grupo.id_grupo
-                   AND inscripcion.estatus = true) AS inscritos
+                grupo.cupo_actual AS inscritos
             ")
             ->when($q !== '', function ($query) use ($q) {
                 $ql = '%' . mb_strtolower($q) . '%';
@@ -651,8 +649,9 @@ class AdminController extends Controller
             ->get();
 
         $ids = $grupos->pluck('id_grupo')->toArray();
-        $horariosPorGrupo = \Illuminate\Support\Facades\DB::table('horario')
+        $horariosPorGrupo = DB::query()->fromSub(LecturaCore::horarios(), 'horario')
             ->whereIn('id_grupo', $ids)
+            ->orderBy('id_horario')
             ->get()
             ->groupBy('id_grupo');
 
@@ -731,9 +730,9 @@ class AdminController extends Controller
 
     public function obtenerGrupo($id)
     {
-        $g = \Illuminate\Support\Facades\DB::table('grupo')
-            ->join('curso',    'grupo.id_curso',    '=', 'curso.id_curso')
-            ->join('profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
+        $g = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
+            ->joinSub(LecturaCore::cursos(), 'curso',    'grupo.id_curso',    '=', 'curso.id_curso')
+            ->joinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
             ->selectRaw("
                 grupo.nombre,
                 grupo.id_grupo, grupo.codigo_grupo, grupo.periodo,
@@ -741,17 +740,16 @@ class AdminController extends Controller
                 grupo.id_curso, grupo.id_profesor,
                 curso.nivel, curso.nombre AS nombre_curso,
                 profesor.nombre AS prof_nombre, profesor.apellido_p AS prof_apellido,
-                (SELECT COUNT(*) FROM inscripcion
-                 WHERE inscripcion.id_grupo = grupo.id_grupo
-                   AND inscripcion.estatus = true) AS inscritos
+                grupo.cupo_actual AS inscritos
             ")
             ->where('grupo.id_grupo', (int) $id)
             ->first();
 
         if (!$g) return response()->json(['error' => 'Grupo no encontrado.'], 404);
 
-        $horarios = \Illuminate\Support\Facades\DB::table('horario')
+        $horarios = DB::query()->fromSub(LecturaCore::horarios(), 'horario')
             ->where('id_grupo', (int) $id)
+            ->orderBy('id_horario')
             ->get()
             ->map(fn($h) => [
                 'id_horario'  => $h->id_horario,
@@ -860,10 +858,10 @@ class AdminController extends Controller
 
     public function verGrupo($id)
 {
-    $g = \Illuminate\Support\Facades\DB::table('grupo')
-        ->join('curso',    'grupo.id_curso',    '=', 'curso.id_curso')
-        ->join('profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
-        ->leftJoin('sede', 'curso.id_sede',     '=', 'sede.id_sede')
+    $g = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
+        ->joinSub(LecturaCore::cursos(), 'curso',    'grupo.id_curso',    '=', 'curso.id_curso')
+        ->joinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
+        ->leftJoinSub(LecturaCore::sedes(), 'sede', 'curso.id_sede',     '=', 'sede.id_sede')
         ->selectRaw("
             grupo.id_grupo, grupo.codigo_grupo, grupo.periodo,
             grupo.fecha_inicio, grupo.fecha_fin, grupo.cupo_maximo, grupo.estatus,
@@ -880,12 +878,12 @@ class AdminController extends Controller
 
     $g->estatus = filter_var($g->estatus, FILTER_VALIDATE_BOOLEAN);
 
-    $horarios = \Illuminate\Support\Facades\DB::table('horario')
+    $horarios = DB::query()->fromSub(LecturaCore::horarios(), 'horario')
         ->where('id_grupo', (int) $id)
         ->orderBy('dia_semana')
         ->get();
-$alumnos = \Illuminate\Support\Facades\DB::table('inscripcion')
-    ->join('alumno', 'inscripcion.id_alumno', '=', 'alumno.id_alumno')
+$alumnos = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
+    ->joinSub(LecturaCore::personas('alumno'), 'alumno', 'inscripcion.id_alumno', '=', 'alumno.id_alumno')
     ->select(
         'alumno.id_alumno',
         'alumno.nombre',
@@ -916,8 +914,8 @@ $alumnos = \Illuminate\Support\Facades\DB::table('inscripcion')
     {
         $q = $request->query('q', '');
 
-        $cursos = \Illuminate\Support\Facades\DB::table('curso')
-            ->leftJoin('sede', 'curso.id_sede', '=', 'sede.id_sede')
+        $cursos = DB::query()->fromSub(LecturaCore::cursos(), 'curso')
+            ->leftJoinSub(LecturaCore::sedes(), 'sede', 'curso.id_sede', '=', 'sede.id_sede')
             ->selectRaw("
                 curso.id_curso,
                 curso.nombre,
@@ -974,8 +972,8 @@ $alumnos = \Illuminate\Support\Facades\DB::table('inscripcion')
 
     public function obtenerCurso($id)
     {
-        $curso = \Illuminate\Support\Facades\DB::table('curso')
-            ->leftJoin('sede', 'curso.id_sede', '=', 'sede.id_sede')
+        $curso = DB::query()->fromSub(LecturaCore::cursos(), 'curso')
+            ->leftJoinSub(LecturaCore::sedes(), 'sede', 'curso.id_sede', '=', 'sede.id_sede')
             ->selectRaw("curso.*, sede.nombre AS nombre_sede")
             ->where('curso.id_curso', (int) $id)
             ->first();
@@ -1052,16 +1050,16 @@ $alumnos = \Illuminate\Support\Facades\DB::table('inscripcion')
 
     public function obtenerStatus()
     {
-        $totalAlumnos = \Illuminate\Support\Facades\DB::table('alumno')->where('estatus', true)->count();
-        $totalExtraescolares = \Illuminate\Support\Facades\DB::table('extraescolar')->where('estatus', true)->count();
-        $totalProfesores = \Illuminate\Support\Facades\DB::table('profesor')->where('estatus', true)->count();
+        $totalAlumnos = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')->where('estatus', true)->count();
+        $totalExtraescolares = DB::query()->fromSub(LecturaCore::extraescolares(), 'extraescolar')->where('estatus', true)->count();
+        $totalProfesores = DB::query()->fromSub(LecturaCore::personas('profesor'), 'profesor')->where('estatus', true)->count();
 
-        $mesActual = \Illuminate\Support\Facades\DB::table('alumno')
+        $mesActual = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
             ->whereRaw('EXTRACT(MONTH FROM fecha_registro) = EXTRACT(MONTH FROM CURRENT_DATE)')
             ->whereRaw('EXTRACT(YEAR FROM fecha_registro) = EXTRACT(YEAR FROM CURRENT_DATE)')
             ->count();
             
-        $mesAnterior = \Illuminate\Support\Facades\DB::table('alumno')
+        $mesAnterior = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
             ->whereRaw("EXTRACT(MONTH FROM fecha_registro) = EXTRACT(MONTH FROM CURRENT_DATE - INTERVAL '1 month')")
             ->whereRaw("EXTRACT(YEAR FROM fecha_registro) = EXTRACT(YEAR FROM CURRENT_DATE - INTERVAL '1 month')")
             ->count();
@@ -1074,13 +1072,13 @@ $alumnos = \Illuminate\Support\Facades\DB::table('inscripcion')
             $crecimiento = $signo . round($calc) . "%";
         }
 
-        $actividadAlumnos = \Illuminate\Support\Facades\DB::table('alumno')
+        $actividadAlumnos = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
             ->selectRaw("'alumno' as tipo, nombre || ' ' || apellido_p as descripcion, fecha_registro as fecha")
             ->orderBy('fecha_registro', 'desc')
             ->limit(5)
             ->get();
 
-        $actividadGrupos = \Illuminate\Support\Facades\DB::table('grupo')
+        $actividadGrupos = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
             ->selectRaw("'grupo' as tipo, codigo_grupo as descripcion, fecha_inicio::timestamp as fecha")
             ->orderBy('fecha_inicio', 'desc')
             ->limit(5)

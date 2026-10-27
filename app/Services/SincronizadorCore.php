@@ -8,8 +8,8 @@ use Illuminate\Support\Facades\DB;
  * tablas viejas de public: usuarios, sedes y roles (core.*), facturas
  * (finanzas.*) y cursos, grupos e inscripciones (academico.*).
  *
- * Las tablas viejas se siguen escribiendo porque las pantallas todavía leen
- * de ellas; v2.2 es lo que usa el login.
+ * Las tablas viejas se siguen escribiendo porque los guardados todavía
+ * validan contra ellas; las pantallas ya leen de v2.2 (ver LecturaCore).
  * Hace por registro lo mismo que 01-migracion-auth.sql hace para todos,
  * así que ya no hay que volver a correr ese script tras cada cambio.
  * Llamar dentro de la misma transacción que el cambio en public.
@@ -245,6 +245,60 @@ class SincronizadorCore
         if ($tabla === 'personal') {
             self::rolesDePersonal($id, (int) $idUsuario);
         }
+
+        // 5. Tutor del alumno
+        if ($tabla === 'alumno') {
+            self::tutor($id, $idPersona, isset($j['id_tutor']) ? (int) $j['id_tutor'] : null);
+        }
+    }
+
+    /** Copia solo el tutor de un alumno ya migrado (para pasar los que ya existen). */
+    public static function tutorDeAlumno(int $idAlumno): void
+    {
+        $idPersona = self::mapa('alumno', $idAlumno);
+        if ($idPersona) {
+            self::tutor($idAlumno, $idPersona, DB::table('alumno')->where('id_alumno', $idAlumno)->value('id_tutor'));
+        }
+    }
+
+    /**
+     * En v2.2 el tutor es otra persona ligada en core.alumno_tutor (sin cuenta
+     * ni perfil). En migracion.mapa queda como tabla_origen 'tutor'.
+     */
+    private static function tutor(int $idAlumno, int $idPersonaAlumno, ?int $idTutor): void
+    {
+        $t = $idTutor ? DB::table('tutor')->where('id_tutor', $idTutor)->first() : null;
+        if (!$t) {
+            DB::table('core.alumno_tutor')->where('id_alumno', $idPersonaAlumno)->delete();
+            return;
+        }
+
+        $datos = [
+            'nombre'     => mb_substr(self::texto($t->nombre) ?? '-', 0, 60),
+            'apellido_p' => mb_substr(self::texto($t->apellido_p) ?? '-', 0, 60),
+            'apellido_m' => self::corto($t->apellido_m, 60),
+            'telefono'   => self::corto($t->telefono, 20),
+            'email'      => ($e = self::texto($t->email)) ? mb_strtolower($e) : null,
+            'genero'     => 'N',   // v1 no guarda el género del tutor
+        ];
+        $idPersona = self::mapa('tutor', $idTutor);
+        if ($idPersona) {
+            DB::table('core.persona')->where('id', $idPersona)->update($datos);
+        } else {
+            $idPersona = DB::table('core.persona')->insertGetId($datos);
+            self::guardarMapa('tutor', $idTutor, $idPersona);
+        }
+        if ($idPersona === $idPersonaAlumno) {
+            return;   // v2.2 no permite que alguien sea su propio tutor
+        }
+
+        $parentesco = in_array($t->parentesco, ['madre', 'padre', 'abuelo', 'abuela', 'hermano', 'hermana', 'tutor_legal'], true)
+            ? $t->parentesco : 'otro';
+        DB::table('core.alumno_tutor')->where('id_alumno', $idPersonaAlumno)->where('id_tutor', '!=', $idPersona)->delete();
+        DB::table('core.alumno_tutor')->updateOrInsert(
+            ['id_alumno' => $idPersonaAlumno, 'id_tutor' => $idPersona],
+            ['parentesco' => $parentesco, 'principal' => true, 'autoriza_recoger' => true]
+        );
     }
 
     /**

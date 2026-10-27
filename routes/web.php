@@ -9,6 +9,7 @@ use App\Http\Controllers\PersonalProfileController;
 use App\Http\Controllers\AlumnoProfileController;
 use App\Http\Middleware\VerificarToken;
 use App\Services\AccesoCore;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -95,20 +96,23 @@ Route::middleware(VerificarToken::class)->group(function () {
             return redirect()->route('dashboard.alumno');
         }
 
-        $alumnos = Alumno::leftJoin('sede', 'alumno.id_sede', '=', 'sede.id_sede')
+        $alumnos = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
+            ->leftJoinSub(LecturaCore::sedes(), 'sede', 'alumno.id_sede', '=', 'sede.id_sede')
             ->select('alumno.*', 'sede.nombre as nombre_sede')
             ->orderBy('alumno.id_alumno', 'asc')
             ->get();
-        $profesores = Profesor::leftJoin('sede', 'profesor.id_sede', '=', 'sede.id_sede')
+        $profesores = DB::query()->fromSub(LecturaCore::personas('profesor'), 'profesor')
+            ->leftJoinSub(LecturaCore::sedes(), 'sede', 'profesor.id_sede', '=', 'sede.id_sede')
             ->select('profesor.*', 'sede.nombre as nombre_sede')
             ->orderBy('profesor.id_profesor', 'asc')
             ->get();
-        $personal = Personal::leftJoin('rol', 'personal.id_rol', '=', 'rol.id_rol')
+        $personal = DB::query()->fromSub(LecturaCore::personas('personal'), 'personal')
+            ->leftJoinSub(LecturaCore::roles(), 'rol', 'personal.id_rol', '=', 'rol.id_rol')
             ->select('personal.*', 'rol.nombre as nombre_rol')
             ->orderBy('personal.id_personal', 'asc')
             ->get();
-        $sedes = DB::table('sede')->orderBy('id_sede')->get(['id_sede', 'nombre']);
-        $roles = DB::table('rol')->get(['id_rol', 'nombre']);
+        $sedes = DB::query()->fromSub(LecturaCore::sedes(), 'sede')->orderBy('id_sede')->get(['id_sede', 'nombre']);
+        $roles = DB::query()->fromSub(LecturaCore::roles(), 'rol')->orderBy('id_rol')->get(['id_rol', 'nombre']);
         $token = session('token');
         $permisosData = session('permisos');
         $permisos = $permisosData ? (object) array_map(fn($v) => filter_var($v, FILTER_VALIDATE_BOOLEAN), $permisosData) : (object)[];
@@ -208,7 +212,7 @@ Route::middleware(VerificarToken::class)->group(function () {
     Route::get('/profesor/perfil', function () {
         $idProfesor = session('id_profesor');
         if (!$idProfesor) return response()->json(['error' => 'No autorizado'], 401);
-        $profesor = DB::table('profesor')->where('id_profesor', $idProfesor)->first();
+        $profesor = DB::query()->fromSub(LecturaCore::personas('profesor'), 'profesor')->where('id_profesor', $idProfesor)->first();
         if (!$profesor) return response()->json(['error' => 'No encontrado'], 404);
         return response()->json($profesor);
     });

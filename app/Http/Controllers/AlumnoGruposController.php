@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 use Laravel\Sanctum\PersonalAccessToken;
 use App\Models\Alumno;
@@ -39,69 +40,74 @@ class AlumnoGruposController extends Controller
         };
     }
 
+    /**
+     * Grupos con curso, profesor y horarios, leídos de v2.2 con la forma de
+     * antes (lo que regresaba el modelo Grupo con sus relaciones).
+     */
+    private static function gruposConDetalle(callable $filtro)
+    {
+        $query = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
+            ->joinSub(LecturaCore::cursos(), 'curso', 'grupo.id_curso', '=', 'curso.id_curso')
+            ->leftJoinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
+            ->select('grupo.*', 'curso.nombre as curso_nombre', 'curso.nivel as curso_nivel',
+                     'profesor.nombre as prof_nombre', 'profesor.apellido_p as prof_apellido')
+            ->orderBy('grupo.id_grupo');
+        $filtro($query);
+        $grupos = $query->get();
+
+        $horarios = DB::query()->fromSub(LecturaCore::horarios(), 'horario')
+            ->whereIn('id_grupo', $grupos->pluck('id_grupo'))
+            ->orderBy('id_horario')
+            ->get()
+            ->groupBy('id_grupo');
+
+        return $grupos->map(function ($g) use ($horarios) {
+            $nivelDB = (int) ($g->curso_nivel ?? 0);
+            return [
+                'id_grupo' => $g->id_grupo,
+                'curso_nombre' => $g->curso_nombre ?? 'Sin curso',
+                'nivel' => self::nivelNombre($nivelDB),
+                'nivel_puntaje' => $nivelDB,
+                'profesor_nombre' => $g->prof_nombre ?? 'Sin',
+                'profesor_apellido' => $g->prof_apellido ?? 'asignar',
+                'horarios' => $horarios->get($g->id_grupo, collect())->values(),
+                'cupo_actual' => $g->cupo_actual,
+                'cupo_maximo' => $g->cupo_maximo,
+            ];
+        });
+    }
+
     public function index()
     {
         $alumno = $this->getAlumnoActual();
         if (!$alumno)
             return response()->json(['error' => 'No autenticado'], 401);
 
-        // Fetch user's enrolled groups
-        $misInscripciones = DB::table('inscripcion')
+        // Puntaje y sede del alumno desde v2.2
+        $datos = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
+            ->where('id_alumno', $alumno->id_alumno)->first() ?? $alumno;
+
+        $misInscripciones = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
             ->where('id_alumno', $alumno->id_alumno)
             ->where('estatus', true)
             ->pluck('id_grupo')
             ->toArray();
 
-        $misGrupos = \App\Models\Academico\Grupo::with(['curso', 'profesor', 'horarios'])
-            ->whereIn('id_grupo', $misInscripciones)
-            ->whereHas('curso', function ($q) use ($alumno) {
-                $q->where('id_sede', $alumno->id_sede);
-            })
-            ->get()
-            ->map(function ($g) {
-                $nivelDB = $g->curso ? (int) $g->curso->nivel : 0;
-                return [
-                    'id_grupo' => $g->id_grupo,
-                    'curso_nombre' => $g->curso ? $g->curso->nombre : 'Sin curso',
-                    'nivel' => self::nivelNombre($nivelDB),
-                    'nivel_puntaje' => $nivelDB,
-                    'profesor_nombre' => $g->profesor ? $g->profesor->nombre : 'Sin',
-                    'profesor_apellido' => $g->profesor ? $g->profesor->apellido_p : 'asignar',
-                    'horarios' => $g->horarios,
-                    'inscrito' => true,
-                    'cupo_actual' => $g->cupo_actual,
-                    'cupo_maximo' => $g->cupo_maximo,
-                ];
-            });
+        $misGrupos = self::gruposConDetalle(fn ($q) => $q
+            ->whereIn('grupo.id_grupo', $misInscripciones)
+            ->where('curso.id_sede', $datos->id_sede))
+            ->map(fn ($g) => array_merge(array_slice($g, 0, 7), ['inscrito' => true], array_slice($g, 7)));
 
         // El puntaje del alumno determina qué cursos puede ver:
         // Solo los grupos cuyo curso.nivel (umbral mínimo) sea <= puntaje del alumno
-        $puntaje = $alumno->puntaje ?? 0;
+        $puntaje = $datos->puntaje ?? 0;
 
-        $gruposDisponibles = \App\Models\Academico\Grupo::with(['curso', 'profesor', 'horarios'])
-            ->whereNotIn('id_grupo', $misInscripciones)
-            ->where('estatus', true)
-            ->whereHas('curso', function ($q) use ($puntaje, $alumno) {
-                $q->where('nivel', '<=', $puntaje)
-                  ->where('id_sede', $alumno->id_sede);
-            })
-            ->get()
-            ->map(function ($g) {
-                $nivelDB = $g->curso ? (int) $g->curso->nivel : 0;
-                return [
-                    'id_grupo' => $g->id_grupo,
-                    'curso_nombre' => $g->curso ? $g->curso->nombre : 'Sin curso',
-                    'nivel' => self::nivelNombre($nivelDB),
-                    'nivel_puntaje' => $nivelDB,
-                    'profesor_nombre' => $g->profesor ? $g->profesor->nombre : 'Sin',
-                    'profesor_apellido' => $g->profesor ? $g->profesor->apellido_p : 'asignar',
-                    'horarios' => $g->horarios,
-                    'cupo_actual' => $g->cupo_actual,
-                    'cupo_maximo' => $g->cupo_maximo,
-                    'inscrito' => false,
-                    'cupo_lleno' => $g->cupo_actual >= $g->cupo_maximo,
-                ];
-            });
+        $gruposDisponibles = self::gruposConDetalle(fn ($q) => $q
+            ->whereNotIn('grupo.id_grupo', $misInscripciones)
+            ->where('grupo.estatus', true)
+            ->where('curso.nivel', '<=', $puntaje)
+            ->where('curso.id_sede', $datos->id_sede))
+            ->map(fn ($g) => $g + ['inscrito' => false, 'cupo_lleno' => $g['cupo_actual'] >= $g['cupo_maximo']]);
 
         return response()->json([
             'mis_grupos' => $misGrupos,

@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Laravel\Sanctum\PersonalAccessToken;
 use App\Models\Alumno;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 
 use App\Models\Tutor;
@@ -39,34 +40,45 @@ class AlumnoProfileController extends Controller
 
 
 
+/** Alumnos leídos de v2.2 con las columnas de public.alumno. */
+private static function alumnos()
+{
+    return DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno');
+}
+
 public function show()
 {
     $alumno = $this->getAlumnoActual();
     if (!$alumno) return response()->json(['error' => 'No autenticado'], 401);
 
-    $sede = DB::table('sede')->where('id_sede', $alumno->id_sede)->first();
-    $tutor = Tutor::find($alumno->id_tutor);
+    $alumno = self::alumnos()->where('id_alumno', $alumno->id_alumno)->first();
+    if (!$alumno) return response()->json(['error' => 'No encontrado'], 404);
+
+    $sede = DB::query()->fromSub(LecturaCore::sedes(), 'sede')->where('id_sede', $alumno->id_sede)->first();
+    $tutor = $alumno->id_tutor
+        ? DB::query()->fromSub(LecturaCore::tutores(), 'tutor')->where('id_tutor', $alumno->id_tutor)->first()
+        : null;
     $nivel = $this->calcularNivel($alumno->puntaje ?? 0);
     $misPuntos = $alumno->puntaje ?? 0;
 
     // --- CÁLCULO DE POSICIONES PERSONALES ---
     // Posición Global: Contar cuántos puntajes únicos son mayores al mío y sumar 1
-    $posicionGlobal = Alumno::where('puntaje', '>', $misPuntos)
+    $posicionGlobal = self::alumnos()->where('puntaje', '>', $misPuntos)
         ->distinct('puntaje')
         ->count('puntaje') + 1;
 
     // Posición en Sede: Lo mismo pero filtrando por su sede
-    $posicionSede = Alumno::where('id_sede', $alumno->id_sede)
+    $posicionSede = self::alumnos()->where('id_sede', $alumno->id_sede)
         ->where('puntaje', '>', $misPuntos)
         ->distinct('puntaje')
         ->count('puntaje') + 1;
 
     // --- RANKING GLOBAL (Top 10 puntajes únicos) ---
-    $topGlobal = Alumno::select('puntaje')->distinct()->whereNotNull('puntaje')
+    $topGlobal = self::alumnos()->select('puntaje')->distinct()->whereNotNull('puntaje')
         ->orderBy('puntaje', 'desc')->limit(10)->pluck('puntaje');
     $minGlobal = $topGlobal->min() ?? 0;
     
-    $rankingGlobal = Alumno::where('puntaje', '>=', $minGlobal)
+    $rankingGlobal = self::alumnos()->where('puntaje', '>=', $minGlobal)
         ->orderBy('puntaje', 'desc')->get()->map(function($a) {
             $n = $this->calcularNivel($a->puntaje ?? 0);
             return [
@@ -78,12 +90,12 @@ public function show()
         });
 
     // --- RANKING POR SEDE (Top 10 puntajes únicos) ---
-    $topSede = Alumno::where('id_sede', $alumno->id_sede)->select('puntaje')
+    $topSede = self::alumnos()->where('id_sede', $alumno->id_sede)->select('puntaje')
         ->distinct()->whereNotNull('puntaje')->orderBy('puntaje', 'desc')
         ->limit(10)->pluck('puntaje');
     $minSede = $topSede->min() ?? 0;
 
-    $rankingSede = Alumno::where('id_sede', $alumno->id_sede)
+    $rankingSede = self::alumnos()->where('id_sede', $alumno->id_sede)
         ->where('puntaje', '>=', $minSede)->orderBy('puntaje', 'desc')
         ->get()->map(function($a) {
             $n = $this->calcularNivel($a->puntaje ?? 0);

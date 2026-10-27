@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Models\Rol;
 use App\Models\Permiso;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 
 class RolController extends Controller
@@ -28,9 +29,7 @@ class RolController extends Controller
 
         $superAdminId = $this->getSuperAdminId();
 
-        $query = DB::table('rol')
-            ->join('permiso', 'rol.id_permiso', '=', 'permiso.id_permiso')
-            ->select('rol.*', 'permiso.*', 'rol.id_rol', 'rol.nombre', 'rol.descripcion', 'rol.estatus', 'rol.administrativo')
+        $query = DB::query()->fromSub(LecturaCore::roles(), 'rol')
             ->where('rol.id_rol', '!=', $superAdminId)
             ->orderBy('rol.id_rol');
 
@@ -66,9 +65,7 @@ class RolController extends Controller
             return response()->json(['error' => 'No autorizado'], 403);
         }
 
-        $rol = DB::table('rol')
-            ->join('permiso', 'rol.id_permiso', '=', 'permiso.id_permiso')
-            ->select('rol.*', 'permiso.*', 'rol.id_rol', 'rol.nombre', 'rol.descripcion', 'rol.estatus', 'rol.administrativo')
+        $rol = DB::query()->fromSub(LecturaCore::roles(), 'rol')
             ->where('rol.id_rol', (int) $id)
             ->first();
 

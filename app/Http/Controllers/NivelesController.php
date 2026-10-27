@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use App\Services\LecturaCore;
 use App\Services\SincronizadorCore;
 
 class NivelesController extends Controller
@@ -27,13 +28,13 @@ class NivelesController extends Controller
         $nivel   = $request->query('nivel',    '');  // 1-6
         $q       = $request->query('q',        '');
 
-        $query = DB::table('alumno')
-            ->leftJoin('sede', 'alumno.id_sede', '=', 'sede.id_sede')
-            ->leftJoin('inscripcion', function ($join) {
+        $query = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
+            ->leftJoinSub(LecturaCore::sedes(), 'sede', 'alumno.id_sede', '=', 'sede.id_sede')
+            ->leftJoinSub(LecturaCore::inscripciones(), 'inscripcion', function ($join) {
                 $join->on('inscripcion.id_alumno', '=', 'alumno.id_alumno')
                      ->where('inscripcion.estatus', '=', true);
             })
-            ->leftJoin('grupo', function ($join) {
+            ->leftJoinSub(LecturaCore::grupos(), 'grupo', function ($join) {
                 $join->on('grupo.id_grupo', '=', 'inscripcion.id_grupo')
                      ->where('grupo.estatus', '=', true);
             })
@@ -55,12 +56,12 @@ class NivelesController extends Controller
 
         // ── Restricción por sede ────────────────────────────
 if ($tipo === 'profesor' && $idProfesor) {
-    $gruposProfesor = DB::table('grupo')
+    $gruposProfesor = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
         ->where('id_profesor', (int) $idProfesor)
         ->pluck('id_grupo');
     $query->whereIn('inscripcion.id_grupo', $gruposProfesor);
 } elseif (!$administrativo) {
-    $sedePersonal = DB::table('usuariosede')
+    $sedePersonal = DB::query()->fromSub(LecturaCore::sedesPersonal(), 'usuariosede')
         ->where('id_personal', $idPersonal)
         ->value('id_sede');
     $sedeEfectiva = $sedePersonal ?? $idSedeSesion;
@@ -140,8 +141,8 @@ if ($tipo === 'profesor' && $idProfesor) {
         $tipo       = session('tipo', 'personal');
         $idProfesor = session('id_profesor');
 
-        $query = DB::table('grupo')
-            ->leftJoin('curso', 'grupo.id_curso', '=', 'curso.id_curso')
+        $query = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
+            ->leftJoinSub(LecturaCore::cursos(), 'curso', 'grupo.id_curso', '=', 'curso.id_curso')
             ->select('grupo.id_grupo', 'grupo.codigo_grupo', 'curso.nombre as nombre_curso')
             ->where('grupo.estatus', true)
             ->orderBy('grupo.codigo_grupo');
@@ -149,7 +150,7 @@ if ($tipo === 'profesor' && $idProfesor) {
   if ($tipo === 'profesor' && $idProfesor) {
     $query->where('grupo.id_profesor', (int) $idProfesor);
 } elseif (!$administrativo) {
-    $sedePersonal = DB::table('usuariosede')
+    $sedePersonal = DB::query()->fromSub(LecturaCore::sedesPersonal(), 'usuariosede')
         ->where('id_personal', $idPersonal)
         ->value('id_sede');
     $sedeEfectiva = $sedePersonal ?? $idSedeSesion;
