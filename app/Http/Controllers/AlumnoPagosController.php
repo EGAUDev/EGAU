@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\SincronizadorCore;
 use Laravel\Sanctum\PersonalAccessToken;
 use App\Models\Alumno;
 use App\Models\Factura;
@@ -28,10 +29,16 @@ class AlumnoPagosController extends Controller
         if (!$alumno) return response()->json(['error' => 'No autenticado'], 401);
 
         // Update expired invoices
-        Factura::where('id_alumno', $alumno->id_alumno)
+        $vencidas = Factura::where('id_alumno', $alumno->id_alumno)
             ->where('vigencia', 'enproceso')
             ->where('fecha_limite', '<', now())
-            ->update(['vigencia' => 'expirado']);
+            ->pluck('id_factura');
+        if ($vencidas->isNotEmpty()) {
+            DB::transaction(function () use ($vencidas) {
+                Factura::whereIn('id_factura', $vencidas)->update(['vigencia' => 'expirado']);
+                SincronizadorCore::cargos($vencidas);
+            });
+        }
 
         $facturas = Factura::where('id_alumno', $alumno->id_alumno)
             ->where('vigencia', '!=', 'cancelado')

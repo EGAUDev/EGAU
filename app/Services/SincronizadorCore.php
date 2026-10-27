@@ -385,6 +385,90 @@ class SincronizadorCore
             ->exists();
     }
 
+    // ===================== PAGOS =====================
+
+    // vigencia de public.factura -> estado de finanzas.cargo ('pagado' sale de los pagos)
+    private const ESTADO_CARGO = ['enproceso' => 'pendiente', 'expirado' => 'vencido', 'cancelado' => 'cancelado', 'pagado' => 'pagado'];
+
+    /**
+     * Copia una factura a finanzas.cargo. Una factura pagada lleva un registro
+     * en finanzas.pago por el total (método 'otro': v1 no guarda cómo se pagó).
+     * El cargo aún no se liga a academico.inscripcion; la factura queda en migracion.mapa.
+     */
+    public static function cargo(int $idFactura): void
+    {
+        $f = DB::table('factura')->where('id_factura', $idFactura)->first();
+        if (!$f) {
+            return;
+        }
+
+        $idPersona = self::mapa('alumno', (int) $f->id_alumno);
+        if (!$idPersona) {
+            self::persona('alumno', (int) $f->id_alumno);
+            $idPersona = self::mapa('alumno', (int) $f->id_alumno);
+        }
+        if (!$idPersona) {
+            return;
+        }
+
+        $idSedeLegacy = DB::table('alumno')->where('id_alumno', $f->id_alumno)->value('id_sede');
+        $idSede = ($idSedeLegacy ? self::mapa('sede', (int) $idSedeLegacy) : null)
+            ?? (int) DB::table('core.perfil')->where('id_persona', $idPersona)->where('tipo', 'alumno')->value('id_sede');
+
+        $total = round((float) ($f->total_pago ?? 0), 2);
+        $estado = self::ESTADO_CARGO[$f->vigencia] ?? 'pendiente';
+        $datos = [
+            'id_sede'       => $idSede,
+            'id_alumno'     => $idPersona,
+            'id_concepto'   => DB::table('finanzas.concepto')->where('clave', $f->id_inscripcionextra ? 'extraescolar' : 'inscripcion')->value('id'),
+            'descripcion'   => trim(($f->concepto ?? '') . ($f->descripcion ? ' | ' . $f->descripcion : '')) ?: null,
+            'subtotal'      => $total,
+            'fecha_emision' => $f->fecha_emision,
+            'fecha_limite'  => substr((string) $f->fecha_limite, 0, 10),
+        ];
+
+        $idCargo = self::mapa('factura', $idFactura);
+        $cargo = $idCargo ? DB::table('finanzas.cargo')->where('id', $idCargo)->first() : null;
+        if (!$cargo) {
+            $idCargo = DB::table('finanzas.cargo')->insertGetId($datos + ['estado' => 'pendiente']);
+            DB::table('migracion.mapa')->where('tabla_origen', 'factura')->where('id_origen', $idFactura)->delete();
+            self::guardarMapa('factura', $idFactura, $idCargo);
+        } elseif ($cargo->id_sede != $idSede) {
+            unset($datos['id_sede']);   // el folio es por sede; no se mueve de sede un cargo ya emitido
+        }
+
+        $pagado = (float) DB::table('finanzas.pago')->where('id_cargo', $idCargo)->sum('monto');
+
+        if ($estado === 'pagado') {
+            // Sin pagos aún: queda pendiente y el pago lo pasa a pagado (lo hace el trigger de finanzas.pago)
+            DB::table('finanzas.cargo')->where('id', $idCargo)->update($datos + [
+                'estado' => $pagado >= $total && $total > 0 ? 'pagado' : 'pendiente', 'cancelado_en' => null,
+            ]);
+            if ($total > 0 && $pagado < $total) {
+                DB::table('finanzas.pago')->insert([
+                    'id_cargo' => $idCargo, 'monto' => round($total - $pagado, 2), 'metodo' => 'otro',
+                    'referencia' => 'factura v1 #' . $idFactura, 'fecha_pago' => now(),
+                ]);
+            } elseif ($total == 0) {
+                DB::table('finanzas.cargo')->where('id', $idCargo)->update(['estado' => 'pagado']);
+            }
+            return;
+        }
+
+        DB::table('finanzas.cargo')->where('id', $idCargo)->update($datos + [
+            'estado'       => $estado,
+            'cancelado_en' => $estado === 'cancelado' ? ($cargo?->cancelado_en ?? now()) : null,
+        ]);
+    }
+
+    /** Varias facturas a la vez (p. ej. las que se acaban de vencer). */
+    public static function cargos(iterable $idsFactura): void
+    {
+        foreach ($idsFactura as $id) {
+            self::cargo((int) $id);
+        }
+    }
+
     // ===================== AYUDAS =====================
 
     private static function mapa(string $tabla, int $id): ?int

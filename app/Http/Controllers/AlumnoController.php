@@ -5,6 +5,7 @@ use Illuminate\Http\Request;
 use App\Models\Alumno;
 use App\Models\Academico\Factura;
 use Illuminate\Support\Facades\DB;
+use App\Services\SincronizadorCore;
 
 class AlumnoController extends Controller
 {
@@ -198,12 +199,18 @@ class AlumnoController extends Controller
         }
 
         // Auto-expirar facturas vencidas
-        DB::table('factura')
+        $vencidas = DB::table('factura')
             ->where('id_alumno', $alumno->id_alumno)
             ->whereNotNull('id_inscripcionextra')
             ->where('vigencia', 'enproceso')
             ->where('fecha_limite', '<', now())
-            ->update(['vigencia' => 'expirado']);
+            ->pluck('id_factura');
+        if ($vencidas->isNotEmpty()) {
+            DB::transaction(function () use ($vencidas) {
+                DB::table('factura')->whereIn('id_factura', $vencidas)->update(['vigencia' => 'expirado']);
+                SincronizadorCore::cargos($vencidas);
+            });
+        }
 
         $inscritos = DB::table('inscripcionextraescolar')
             ->where('id_alumno', $alumno->id_alumno)
@@ -303,26 +310,29 @@ class AlumnoController extends Controller
         }
 
         // DESPUÉS
-        $idInscripcion = DB::table('inscripcionextraescolar')->insertGetId([
-            'id_alumno'        => $alumno->id_alumno,
-            'id_extraescolar'  => $id,
-            'fecha_asignacion' => now(),
-            'status'           => true,
-        ], 'id_inscripcionextra');
+        DB::transaction(function () use ($alumno, $extra, $id) {
+            $idInscripcion = DB::table('inscripcionextraescolar')->insertGetId([
+                'id_alumno'        => $alumno->id_alumno,
+                'id_extraescolar'  => $id,
+                'fecha_asignacion' => now(),
+                'status'           => true,
+            ], 'id_inscripcionextra');
 
-        Factura::create([
-            'id_alumno'           => $alumno->id_alumno,
-            'id_inscripcionextra' => $idInscripcion,
-            'fecha_emision'       => now(),
-            'fecha_limite'        => $extra->fecha_inicio,
-            'total_pago'          => $extra->costo_base,
-            'vigencia'            => 'enproceso',
-            'concepto'            => 'Inscripción a actividad extraescolar: ' . $extra->nombre,
-        ]);
+            $factura = Factura::create([
+                'id_alumno'           => $alumno->id_alumno,
+                'id_inscripcionextra' => $idInscripcion,
+                'fecha_emision'       => now(),
+                'fecha_limite'        => $extra->fecha_inicio,
+                'total_pago'          => $extra->costo_base,
+                'vigencia'            => 'enproceso',
+                'concepto'            => 'Inscripción a actividad extraescolar: ' . $extra->nombre,
+            ]);
+            SincronizadorCore::cargo((int) $factura->id_factura);
 
-        DB::table('extraescolar')
-            ->where('id_extraescolar', $id)
-            ->increment('cupo_actual');
+            DB::table('extraescolar')
+                ->where('id_extraescolar', $id)
+                ->increment('cupo_actual');
+        });
 
         return response()->json(['message' => 'Inscripción exitosa']);
     }
@@ -356,9 +366,12 @@ class AlumnoController extends Controller
         }
 
         if ($factura) {
-            DB::table('factura')
-                ->where('id_factura', $factura->id_factura)
-                ->update(['vigencia' => 'cancelado']);
+            DB::transaction(function () use ($factura) {
+                DB::table('factura')
+                    ->where('id_factura', $factura->id_factura)
+                    ->update(['vigencia' => 'cancelado']);
+                SincronizadorCore::cargo((int) $factura->id_factura);
+            });
         }
 
         DB::table('inscripcionextraescolar')

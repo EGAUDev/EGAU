@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\SincronizadorCore;
 use Laravel\Sanctum\PersonalAccessToken;
 use App\Models\Alumno;
 
@@ -150,25 +151,28 @@ class AlumnoGruposController extends Controller
             if ($yaInscrito)
                 return response()->json(['message' => 'Ya estás inscrito en este grupo.'], 400);
 
-            $id_inscripcion = DB::table('inscripcion')->insertGetId([
-                'id_alumno' => $alumno->id_alumno,
-                'id_grupo' => $id,
-                'fecha_asignacion' => now(),
-                'estatus' => true
-            ], 'id_inscripcion');
+            DB::transaction(function () use ($alumno, $id, $grupo, $curso) {
+                $id_inscripcion = DB::table('inscripcion')->insertGetId([
+                    'id_alumno' => $alumno->id_alumno,
+                    'id_grupo' => $id,
+                    'fecha_asignacion' => now(),
+                    'estatus' => true
+                ], 'id_inscripcion');
 
-            DB::table('grupo')->where('id_grupo', $id)->increment('cupo_actual');
+                DB::table('grupo')->where('id_grupo', $id)->increment('cupo_actual');
 
-            DB::table('factura')->insert([
-                'id_alumno' => $alumno->id_alumno,
-                'id_inscripcion' => $id_inscripcion,
-                'fecha_emision' => now(),
-                'fecha_limite' => now()->addMonth(),
-                'total_pago' => $curso->costo_base ?? 0,
-                'vigencia' => 'enproceso',
-                'descripcion' => $curso->descripcion ?? 'Inscripción a curso',
-                'concepto' => 'Pago de inscripcion a grupo ' . $grupo->codigo_grupo
-            ]);
+                $id_factura = DB::table('factura')->insertGetId([
+                    'id_alumno' => $alumno->id_alumno,
+                    'id_inscripcion' => $id_inscripcion,
+                    'fecha_emision' => now(),
+                    'fecha_limite' => now()->addMonth(),
+                    'total_pago' => $curso->costo_base ?? 0,
+                    'vigencia' => 'enproceso',
+                    'descripcion' => $curso->descripcion ?? 'Inscripción a curso',
+                    'concepto' => 'Pago de inscripcion a grupo ' . $grupo->codigo_grupo
+                ], 'id_factura');
+                SincronizadorCore::cargo((int) $id_factura);
+            });
 
             return response()->json(['message' => '¡Te has inscrito al grupo exitosamente!']);
 
@@ -197,17 +201,20 @@ class AlumnoGruposController extends Controller
                 ], 400);
             }
 
-            DB::table('inscripcion')
-                ->where('id_inscripcion', $inscripcion->id_inscripcion)
-                ->update(['estatus' => false]);
-                
-            DB::table('grupo')->where('id_grupo', $id)->decrement('cupo_actual');
+            DB::transaction(function () use ($inscripcion, $id, $factura) {
+                DB::table('inscripcion')
+                    ->where('id_inscripcion', $inscripcion->id_inscripcion)
+                    ->update(['estatus' => false]);
 
-            if ($factura && $factura->vigencia !== 'pagado') {
-                DB::table('factura')
-                    ->where('id_factura', $factura->id_factura)
-                    ->update(['vigencia' => 'cancelado']);
-            }
+                DB::table('grupo')->where('id_grupo', $id)->decrement('cupo_actual');
+
+                if ($factura && $factura->vigencia !== 'pagado') {
+                    DB::table('factura')
+                        ->where('id_factura', $factura->id_factura)
+                        ->update(['vigencia' => 'cancelado']);
+                    SincronizadorCore::cargo((int) $factura->id_factura);
+                }
+            });
 
             return response()->json(['message' => 'Inscripción cancelada exitosamente.']);
         }

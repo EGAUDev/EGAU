@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\SincronizadorCore;
 use App\Models\Academico\Factura;
 use App\Models\Alumno;
 use App\Models\Sede;
@@ -145,7 +146,10 @@ class FacturaController extends Controller
         }
 
         $factura->vigencia = $vigencia;
-        $factura->save();
+        DB::transaction(function () use ($factura) {
+            $factura->save();
+            SincronizadorCore::cargo((int) $factura->id_factura);
+        });
 
         return response()->json(['message' => 'Vigencia actualizada correctamente.', 'vigencia' => $vigencia]);
     }
