@@ -2,10 +2,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Hash;
-use App\Models\Alumno;
-use App\Models\Personal;
-use App\Models\Profesor;
+use App\Services\AccesoCore;
 
 class AuthController extends Controller
 {
@@ -26,50 +23,57 @@ public function login(Request $request)
         'password.min' => 'La contraseña debe tener al menos 6 caracteres.',
     ]);
 
-    $email = $request->input('username');
+    // v2.2: la cuenta vive en core.usuario (login = correo en minúsculas)
+    $login = mb_strtolower(trim($request->input('username')));
     $password = $request->input('password');
     $tipo = $request->input('tipo');
+    $ip = $request->ip();
+    $credencialesInvalidas = fn () => response()->json(['message' => 'Correo o contraseña incorrectos.'], 401);
 
-    if ($tipo === 'alumno') {
-        $usuario = Alumno::where('email', $email)->where('estatus', true)->first();
-    } else {
-        $usuario = Personal::where('email', $email)->where('estatus', true)->first()
-            ?? Profesor::where('email', $email)->where('estatus', true)->first();
+    $cuenta = AccesoCore::buscarUsuario($login);
+
+    if (!$cuenta) {
+        AccesoCore::registrarIntento($login, false, $ip, 'no_existe');
+        return $credencialesInvalidas();
     }
 
-    if (!$usuario || !Hash::check($password, $usuario->getAuthPassword())) {
-        return response()->json(['message' => 'Correo o contraseña incorrectos.'], 401);
+    if (AccesoCore::estaBloqueado($cuenta)) {
+        AccesoCore::registrarIntento($login, false, $ip, 'bloqueado');
+        return response()->json(['message' => 'Cuenta bloqueada por varios intentos fallidos. Intenta de nuevo en 15 minutos.'], 423);
     }
 
-    $tipo = match (true) {
-        $usuario instanceof Alumno => 'alumno',
-        $usuario instanceof Profesor => 'profesor',
-        $usuario instanceof Personal => 'personal',
-    };
+    if (!AccesoCore::passwordValida($password, $cuenta->password_hash)) {
+        AccesoCore::registrarIntento($login, false, $ip, 'contrasena');
+        return $credencialesInvalidas();
+    }
 
+    if ($cuenta->estado !== 'activo') {
+        AccesoCore::registrarIntento($login, false, $ip, 'cuenta_' . $cuenta->estado);
+        return $credencialesInvalidas();
+    }
+
+    $perfil = AccesoCore::perfilParaLogin($cuenta->id_persona, $tipo);
+    // El resto del sistema aún usa las tablas viejas: el token se emite sobre ese registro
+    $usuario = $perfil ? AccesoCore::modeloLegacy($perfil) : null;
+
+    if (!$usuario) {
+        AccesoCore::registrarIntento($login, false, $ip, $perfil ? 'sin_registro_legacy' : 'sin_perfil_' . $tipo);
+        return $credencialesInvalidas();
+    }
+
+    AccesoCore::registrarIntento($login, true, $ip);
+
+    $tipo = $perfil->tipo;
     $token = $usuario->createToken('api-token', expiresAt: now()->addMinutes(config('sanctum.expiration')))->plainTextToken;
-
-    $permisos = null;
-    $administrativo = false;
-    $id_sede = null;
-
-    if ($usuario instanceof Personal) {
-        $rol = \DB::table('rol')->where('id_rol', $usuario->id_rol)->first();
-        if ($rol) {
-            $permisos = \DB::table('permiso')->where('id_permiso', $rol->id_permiso)->first();
-            $administrativo = (bool) $rol->administrativo;
-        }
-        $sede = \DB::table('usuariosede')->where('id_personal', $usuario->id_personal)->first();
-        $id_sede = $sede?->id_sede;
-    }
+    $contexto = AccesoCore::contexto($cuenta->id, $tipo, $perfil->id_sede);
 
     return response()->json([
         'token' => $token,
         'tipo' => $tipo,
         'usuario' => $usuario,
-        'permisos' => $permisos,
-        'administrativo' => $administrativo,
-        'id_sede' => $id_sede,
+        'permisos' => $contexto['permisos'],
+        'administrativo' => $contexto['administrativo'],
+        'id_sede' => $contexto['id_sede'],
     ]);
 }
 

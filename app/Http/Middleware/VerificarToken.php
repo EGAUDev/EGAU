@@ -3,6 +3,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class VerificarToken
@@ -22,11 +23,19 @@ class VerificarToken
         $tokenValido = PersonalAccessToken::where('token', $tokenHash)->first();
 
         if (!$tokenValido || ($tokenValido->expires_at && $tokenValido->expires_at < now())) {
-            session()->forget('token');
-            if ($request->expectsJson()) {
-                return response()->json(['error' => 'Sesión expirada'], 401);
-            }
-            return redirect()->route('login');
+            return $this->rechazar($request, 'Sesión expirada');
+        }
+
+        // v2.2: la cuenta debe seguir activa en core.usuario.
+        // Una sesión sin id_usuario es de antes del cambio a v2.2: se pide volver a entrar.
+        $cuenta = DB::selectOne(
+            'SELECT estado FROM core.usuario WHERE id = ?',
+            [(int) session('id_usuario')]
+        );
+
+        if (!$cuenta || $cuenta->estado !== 'activo') {
+            $tokenValido->delete();
+            return $this->rechazar($request, 'Cuenta inactiva');
         }
 
    $response = $next($request);
@@ -34,5 +43,14 @@ class VerificarToken
    $response->headers->set('Pragma', 'no-cache');
    $response->headers->set('Expires', '0');
    return $response;    
+    }
+
+    private function rechazar(Request $request, string $motivo)
+    {
+        session()->forget(['token', 'id_usuario']);
+        if ($request->expectsJson()) {
+            return response()->json(['error' => $motivo], 401);
+        }
+        return redirect()->route('login');
     }
 }

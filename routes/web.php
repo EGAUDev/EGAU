@@ -8,9 +8,11 @@ use App\Http\Controllers\NivelesController;
 use App\Http\Controllers\PersonalProfileController;
 use App\Http\Controllers\AlumnoProfileController;
 use App\Http\Middleware\VerificarToken;
+use App\Services\AccesoCore;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
+use Laravel\Sanctum\PersonalAccessToken;
 use App\Models\Alumno;
 use App\Models\Profesor;
 use App\Models\Personal;
@@ -55,13 +57,31 @@ Route::post('/logout', function () {
 })->name('logout');
 
 Route::post('/guardar-token', function (Request $request) {
+    // Permisos, sede y alcance se calculan aquí desde v2.2 (core.*);
+    // ya no se confía en lo que manda el navegador.
+    $token = (string) $request->input('token');
+    $acceso = PersonalAccessToken::findToken($token);
+
+    if (!$acceso || ($acceso->expires_at && $acceso->expires_at->isPast()) || !$acceso->tokenable) {
+        return response()->json(['ok' => false, 'message' => 'Token inválido'], 401);
+    }
+
+    $cuenta = AccesoCore::desdeModeloLegacy($acceso->tokenable);
+    if (!$cuenta || $cuenta->estado !== 'activo' || $cuenta->estado_perfil !== 'activo') {
+        return response()->json(['ok' => false, 'message' => 'Cuenta inactiva'], 401);
+    }
+
+    $contexto = AccesoCore::contexto($cuenta->id_usuario, $cuenta->tipo, $cuenta->id_sede);
+
+    session()->regenerate();
     session([
-        'token'         => $request->input('token'),
-        'tipo'          => $request->input('tipo'),
-        'id_sede'       => $request->input('id_sede'),
-        'administrativo'=> $request->input('administrativo'),
-        'permisos'      => $request->input('permisos'),
-        'id_profesor'   => $request->input('id_profesor'),
+        'token'         => $token,
+        'tipo'          => $cuenta->tipo,
+        'id_usuario'    => $cuenta->id_usuario,
+        'id_sede'       => $contexto['id_sede'],
+        'administrativo'=> $contexto['administrativo'],
+        'permisos'      => $contexto['permisos'],
+        'id_profesor'   => $cuenta->tipo === 'profesor' ? $acceso->tokenable->getKey() : null,
     ]);
     return response()->json(['ok' => true]);
 })->name('guardar.token');
