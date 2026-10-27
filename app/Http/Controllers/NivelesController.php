@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use App\Services\SincronizadorCore;
 
 class NivelesController extends Controller
 {
@@ -193,9 +194,12 @@ return response()->json(['data' => $grupos]);
             $nuevoPuntaje = max(0, $puntajeActual - $cantidad);
         }
 
-        DB::table('alumno')
-            ->where('id_alumno', (int) $id)
-            ->update(['puntaje' => $nuevoPuntaje]);
+        DB::transaction(function () use ($id, $nuevoPuntaje) {
+            DB::table('alumno')
+                ->where('id_alumno', (int) $id)
+                ->update(['puntaje' => $nuevoPuntaje]);
+            SincronizadorCore::persona('alumno', (int) $id);   // rating en v2.2
+        });
 
         $rango = $this->calcularRango($nuevoPuntaje);
 

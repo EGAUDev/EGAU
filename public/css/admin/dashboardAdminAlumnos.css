@@ -864,5 +864,7 @@
 }
 
 .ri-spin {
+    /* un <i> en línea no rota con transform: necesita inline-block */
+    display: inline-block;
     animation: spin 1s linear infinite;
 }
