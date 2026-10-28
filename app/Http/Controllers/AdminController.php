@@ -3,13 +3,9 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\Alumno;
-use App\Models\Profesor;
-use App\Models\Personal;
+use App\Services\EscrituraCore;
 use App\Services\LecturaCore;
-use App\Services\SincronizadorCore;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 
@@ -27,11 +23,12 @@ class AdminController extends Controller
         }
 
         $tipo = $request->tipo_usuario;
+        $sedes = DB::table('core.sede')->pluck('id');
 
         $rules = [
             'nombre' => 'required|string|max:50',
             'apellido_p' => 'required|string|max:50',
-            'email' => "required|email|unique:{$tipo},email|max:100",
+            'email' => 'required|email|max:100',
             'contraseña' => 'required|string|min:6',
             'telefono' => 'nullable|string|max:20',
             'estado_residencia' => 'required|string|max:50',
@@ -45,12 +42,12 @@ class AdminController extends Controller
         // Definir reglas específicas
         if ($tipo === 'alumno') {
             $rules['id_tutor'] = 'nullable|integer';
-            $rules['id_sede'] = 'required|integer';
+            $rules['id_sede'] = ['required', 'integer', Rule::in($sedes)];
         } elseif ($tipo === 'profesor') {
-            $rules['id_sede'] = 'required|integer';
+            $rules['id_sede'] = ['required', 'integer', Rule::in($sedes)];
         } elseif ($tipo === 'personal') {
-            $rules['id_rol'] = 'required|integer';
-            $rules['id_sede'] = 'nullable|integer|exists:sede,id_sede';
+            $rules['id_rol'] = ['required', 'integer', Rule::in(DB::table('core.rol')->where('es_sistema', false)->pluck('id'))];
+            $rules['id_sede'] = ['nullable', 'integer', Rule::in($sedes)];
         }
 
         $validator = Validator::make($request->all(), $rules);
@@ -59,74 +56,39 @@ class AdminController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        if (SincronizadorCore::correoOcupado($request->email)) {
+        if (EscrituraCore::correoOcupado($request->email)) {
             return response()->json(['errors' => ['email' => ['Ese correo ya tiene una cuenta en el sistema.']]], 422);
         }
 
-        // Asignación de propiedades manualmente respetando modelos existentes
+        $datos = $request->only([
+            'nombre', 'apellido_p', 'apellido_m', 'estado_residencia', 'ciudad', 'calle', 'codigo_postal',
+            'genero', 'fecha_nacimiento', 'telefono', 'email', 'id_sede', 'id_rol',
+        ]);
+        $datos['estatus'] = $request->input('estatus', true);
         if ($tipo === 'alumno') {
-            $usuario = new Alumno();
-
-            if ($request->filled('tu_nombre')) {
-                $tutor = new \App\Models\Tutor();
-                $tutor->nombre = $request->tu_nombre;
-                $tutor->apellido_p = $request->tu_ap_paterno;
-                $tutor->apellido_m = $request->tu_ap_materno;
-                $tutor->parentesco = $request->tu_parentesco;
-                $tutor->telefono = $request->tu_telefono;
-                $tutor->email = $request->tu_correo;
-                $tutor->save();
-
-                $usuario->id_tutor = $tutor->id_tutor;
-            } elseif ($request->has('id_tutor')) {
-                $usuario->id_tutor = $request->id_tutor;
-            }
-
-            $usuario->id_sede = $request->id_sede;
-            $usuario->puntaje = $request->puntos ?? 0;
-        } elseif ($tipo === 'profesor') {
-            $usuario = new Profesor();
-            $usuario->id_sede = $request->id_sede;
-        } elseif ($tipo === 'personal') {
-            $usuario = new Personal();
-            $usuario->id_rol = $request->id_rol;
+            $datos['puntaje'] = $request->puntos ?? 0;
         }
 
-        $usuario->nombre = $request->nombre;
-        $usuario->apellido_p = $request->apellido_p;
+        $id = DB::transaction(function () use ($tipo, $datos, $request) {
+            $id = EscrituraCore::persona($tipo, null, $datos, $request->input('contraseña'));
 
-        if ($request->filled('apellido_m')) {
-            $usuario->apellido_m = $request->apellido_m;
-        }
-
-        if ($request->filled('estado_residencia'))
-            $usuario->estado_residencia = $request->estado_residencia;
-        if ($request->filled('ciudad'))
-            $usuario->ciudad = $request->ciudad;
-        if ($request->filled('calle'))
-            $usuario->calle = substr($request->calle, 0, 255);
-        if ($request->filled('codigo_postal'))
-            $usuario->codigo_postal = $request->codigo_postal;
-        if ($request->filled('genero'))
-            $usuario->genero = strtolower($request->genero);
-        $usuario->fecha_nacimiento = $request->fecha_nacimiento;
-        if ($request->filled('telefono'))
-            $usuario->telefono = $request->telefono;
-        $usuario->email = $request->email;
-        $usuario->contraseña = Hash::make($request->input('contraseña'));
-        $usuario->estatus = $request->input('estatus', true);
-
-        DB::transaction(function () use ($usuario, $tipo, $request) {
-            $usuario->save();
-            if ($tipo === 'personal' && $request->filled('id_sede')) {
-                self::asignarSedePersonal($usuario->getKey(), (int) $request->id_sede);
+            if ($tipo === 'alumno') {
+                if ($request->filled('tu_nombre')) {
+                    EscrituraCore::tutor($id, [
+                        'nombre' => $request->tu_nombre, 'apellido_p' => $request->tu_ap_paterno,
+                        'apellido_m' => $request->tu_ap_materno, 'parentesco' => $request->tu_parentesco,
+                        'telefono' => $request->tu_telefono, 'email' => $request->tu_correo,
+                    ]);
+                } elseif ($request->filled('id_tutor')) {
+                    EscrituraCore::ligarTutor($id, (int) $request->id_tutor);
+                }
             }
-            SincronizadorCore::persona($tipo, $usuario->getKey(), true);
+            return $id;
         });
 
         return response()->json([
             'message' => 'Usuario registrado exitosamente',
-            'usuario' => $usuario
+            'usuario' => DB::query()->fromSub(LecturaCore::personas($tipo), $tipo)->where("id_{$tipo}", $id)->first(),
         ], 201);
     }
 
@@ -136,22 +98,16 @@ class AdminController extends Controller
             return response()->json(['error' => 'Tipo de usuario inválido'], 400);
         }
 
-        $usuario = null;
-        if ($tipo === 'alumno')
-            $usuario = Alumno::find($id);
-        elseif ($tipo === 'profesor')
-            $usuario = Profesor::find($id);
-        elseif ($tipo === 'personal')
-            $usuario = Personal::find($id);
-
-        if (!$usuario) {
+        $id = (int) $id;
+        if (!DB::table('core.perfil')->where('id_persona', $id)->where('tipo', $tipo)->exists()) {
             return response()->json(['error' => 'Usuario no encontrado'], 404);
         }
 
+        $sedes = DB::table('core.sede')->pluck('id');
         $rules = [
             'nombre' => 'sometimes|required|string|max:50',
             'apellido_p' => 'sometimes|required|string|max:50',
-            'email' => "sometimes|required|email|max:100|unique:{$tipo},email,{$id},id_{$tipo}",
+            'email' => 'sometimes|required|email|max:100',
             'contraseña' => 'nullable|string|min:6',
             'telefono' => 'nullable|string|max:20',
             'estado_residencia' => 'sometimes|required|string|max:50',
@@ -164,14 +120,14 @@ class AdminController extends Controller
 
         if ($tipo === 'alumno') {
             $rules['id_tutor'] = 'nullable|integer';
-            $rules['id_sede'] = 'nullable|integer';
+            $rules['id_sede'] = ['nullable', 'integer', Rule::in($sedes)];
             $rules['puntaje'] = 'nullable|integer';
         } elseif ($tipo === 'profesor') {
-            $rules['id_sede'] = 'nullable|integer';
+            $rules['id_sede'] = ['nullable', 'integer', Rule::in($sedes)];
             $rules['puntaje'] = 'nullable|integer';
         } elseif ($tipo === 'personal') {
-            $rules['id_rol'] = 'nullable|integer';
-            $rules['id_sede'] = 'nullable|integer|exists:sede,id_sede';
+            $rules['id_rol'] = ['nullable', 'integer', Rule::in(DB::table('core.rol')->where('es_sistema', false)->pluck('id'))];
+            $rules['id_sede'] = ['nullable', 'integer', Rule::in($sedes)];
         }
 
         // El formulario de alumnos manda el puntaje como "puntos" (igual que en el alta)
@@ -185,79 +141,36 @@ class AdminController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        if ($request->filled('email') && SincronizadorCore::correoOcupado($request->email, $tipo, (int) $id)) {
+        if ($request->filled('email') && EscrituraCore::correoOcupado($request->email, $id)) {
             return response()->json(['errors' => ['email' => ['Ese correo ya tiene una cuenta en el sistema.']]], 422);
         }
 
-        $fillableFields = [
-            'nombre',
-            'apellido_p',
-            'apellido_m',
-            'estado_residencia',
-            'ciudad',
-            'calle',
-            'codigo_postal',
-            'genero',
-            'fecha_nacimiento',
-            'telefono',
-            'email',
-            'estatus'
+        $campos = [
+            'nombre', 'apellido_p', 'apellido_m', 'estado_residencia', 'ciudad', 'calle', 'codigo_postal',
+            'genero', 'fecha_nacimiento', 'telefono', 'email', 'estatus',
         ];
+        if ($tipo === 'personal') {
+            $campos[] = 'id_rol';
+        } else {
+            $campos[] = 'puntaje';
+        }
+        // Un campo vacío del formulario no borra la sede
+        if ($request->filled('id_sede')) {
+            $campos[] = 'id_sede';
+        }
+        $datos = $request->only($campos);
 
-        if ($tipo === 'alumno')
-            $fillableFields[] = 'puntaje';
-        if ($tipo === 'profesor')
-            $fillableFields[] = 'puntaje';
-
-        foreach ($fillableFields as $field) {
-            if ($request->has($field)) {
-                // Convertir género a minúscula para el enum de PostgreSQL
-                if ($field === 'genero') {
-                    $usuario->genero = strtolower($request->$field);
-                } elseif ($field === 'calle') {
-                    $usuario->calle = substr($request->$field, 0, 255);
-                } else {
-                    $usuario->$field = $request->$field;
-                }
+        DB::transaction(function () use ($tipo, $id, $datos, $request) {
+            EscrituraCore::persona($tipo, $id, $datos, $request->filled('contraseña') ? $request->input('contraseña') : null);
+            if ($tipo === 'alumno' && $request->has('id_tutor')) {
+                EscrituraCore::ligarTutor($id, $request->filled('id_tutor') ? (int) $request->id_tutor : null);
             }
-        }
-
-        if ($request->filled('contraseña')) {
-            $usuario->contraseña = Hash::make($request->contraseña);
-        }
-
-        if ($tipo === 'alumno' && $request->has('id_tutor')) {
-            $usuario->id_tutor = $request->id_tutor;
-        }
-        if (in_array($tipo, ['alumno', 'profesor']) && $request->has('id_sede')) {
-            $usuario->id_sede = $request->id_sede;
-        }
-        if ($tipo === 'personal' && $request->has('id_rol')) {
-            $usuario->id_rol = $request->id_rol;
-        }
-
-        DB::transaction(function () use ($usuario, $tipo, $request) {
-            $usuario->save();
-            if ($tipo === 'personal' && $request->filled('id_sede')) {
-                self::asignarSedePersonal($usuario->getKey(), (int) $request->id_sede);
-            }
-            SincronizadorCore::persona($tipo, $usuario->getKey(), $request->filled('contraseña'));
         });
 
         return response()->json([
             'message' => ucfirst($tipo) . ' actualizado exitosamente',
-            'usuario' => $usuario
+            'usuario' => DB::query()->fromSub(LecturaCore::personas($tipo), $tipo)->where("id_{$tipo}", $id)->first(),
         ]);
-    }
-
-    /** El formulario maneja una sola sede: si no es una de las que ya tiene, reemplaza las anteriores. */
-    private static function asignarSedePersonal(int $idPersonal, int $idSede): void
-    {
-        $tiene = DB::table('usuariosede')->where('id_personal', $idPersonal)->where('id_sede', $idSede)->exists();
-        if (!$tiene) {
-            DB::table('usuariosede')->where('id_personal', $idPersonal)->delete();
-            DB::table('usuariosede')->insert(['id_personal' => $idPersonal, 'id_sede' => $idSede]);
-        }
     }
 
     public function eliminarUsuario($tipo, $id)
@@ -266,27 +179,12 @@ class AdminController extends Controller
             return response()->json(['error' => 'Tipo de usuario inválido'], 400);
         }
 
-        $usuario = null;
-        if ($tipo === 'alumno')
-            $usuario = Alumno::find($id);
-        elseif ($tipo === 'profesor')
-            $usuario = Profesor::find($id);
-        elseif ($tipo === 'personal')
-            $usuario = Personal::find($id);
-
-        if (!$usuario) {
+        if (!DB::table('core.perfil')->where('id_persona', (int) $id)->where('tipo', $tipo)->exists()) {
             return response()->json(['error' => 'Usuario no encontrado'], 404);
         }
 
         try {
-            DB::transaction(function () use ($usuario, $tipo, $id) {
-                // Las sedes asignadas al personal (usuariosede) no son historial: se quitan con él.
-                if ($tipo === 'personal') {
-                    DB::table('usuariosede')->where('id_personal', (int) $id)->delete();
-                }
-                $usuario->delete();
-                SincronizadorCore::eliminarPersona($tipo, (int) $id);
-            });
+            DB::transaction(fn () => EscrituraCore::eliminarPersona($tipo, (int) $id));
         } catch (\Illuminate\Database\QueryException $e) {
             if ($e->getCode() === '23503') {
                 return response()->json([
@@ -543,21 +441,11 @@ class AdminController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $sede = new \App\Models\Sede();
-        $sede->nombre = $request->nombre;
-        $sede->estado_residencia = $request->estado_residencia;
-        $sede->ciudad = $request->ciudad;
-        $sede->codigo_postal = $request->codigo_postal;
-        $sede->calle = $request->calle;
-        $sede->telefono = $request->telefono;
-        $sede->email = $request->email;
-        $sede->estatus = true;
-        DB::transaction(function () use ($sede) {
-            $sede->save();
-            SincronizadorCore::sede($sede->id_sede);
-        });
+        $id = DB::transaction(fn () => EscrituraCore::sede(null, $request->only([
+            'nombre', 'estado_residencia', 'ciudad', 'codigo_postal', 'calle', 'telefono', 'email',
+        ]) + ['estatus' => true]));
 
-        return response()->json(['message' => 'Sede registrada correctamente.', 'id' => $sede->id_sede]);
+        return response()->json(['message' => 'Sede registrada correctamente.', 'id' => $id]);
     }
 
     public function obtenerSede($id)
@@ -581,8 +469,7 @@ class AdminController extends Controller
 
     public function editarSede(Request $request, $id)
     {
-        $sede = \App\Models\Sede::find($id);
-        if (!$sede)
+        if (!DB::table('core.sede')->where('id', (int) $id)->exists())
             return response()->json(['error' => 'Sede no encontrada.'], 404);
 
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
@@ -599,32 +486,20 @@ class AdminController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $sede->nombre = $request->nombre;
-        $sede->estado_residencia = $request->estado_residencia;
-        $sede->ciudad = $request->ciudad;
-        $sede->codigo_postal = $request->codigo_postal;
-        $sede->calle = $request->calle;
-        $sede->telefono = $request->telefono;
-        $sede->email = $request->email;
-        DB::transaction(function () use ($sede) {
-            $sede->save();
-            SincronizadorCore::sede($sede->id_sede);
-        });
+        DB::transaction(fn () => EscrituraCore::sede((int) $id, $request->only([
+            'nombre', 'estado_residencia', 'ciudad', 'codigo_postal', 'calle', 'telefono', 'email',
+        ])));
 
         return response()->json(['message' => 'Sede actualizada correctamente.']);
     }
 
     public function eliminarSede($id)
     {
-        $sede = \App\Models\Sede::find($id);
-        if (!$sede)
+        if (!DB::table('core.sede')->where('id', (int) $id)->exists())
             return response()->json(['error' => 'Sede no encontrada.'], 404);
 
         try {
-            DB::transaction(function () use ($sede, $id) {
-                $sede->delete();
-                SincronizadorCore::eliminarSede((int) $id);
-            });
+            DB::transaction(fn () => EscrituraCore::eliminarSede((int) $id));
         } catch (\Illuminate\Database\QueryException $e) {
             if ($e->getCode() === '23503') {
                 return response()->json([
@@ -745,32 +620,11 @@ class AdminController extends Controller
         if ($validator->fails())
             return response()->json(['errors' => $validator->errors()], 422);
 
-        $grupo = new \App\Models\Academico\Grupo();
-        $grupo->id_curso     = $request->id_curso;
-        $grupo->id_profesor  = $request->id_profesor;
-        $grupo->codigo_grupo = $request->codigo_grupo;
-        $grupo->nombre = $request->input('nombre', '');
-      $grupo->periodo = $request->input('periodo', '');
-        $grupo->fecha_inicio = $request->fecha_inicio;
-        $grupo->fecha_fin    = $request->fecha_fin;
-        $grupo->cupo_maximo  = $request->cupo_maximo;
-        $grupo->estatus      = filter_var($request->input('estatus', true), FILTER_VALIDATE_BOOLEAN);
-        DB::transaction(function () use ($grupo, $request) {
-            $grupo->save();
+        $id = DB::transaction(fn () => EscrituraCore::grupo(null, $request->only([
+            'id_curso', 'id_profesor', 'codigo_grupo', 'nombre', 'periodo', 'fecha_inicio', 'fecha_fin', 'cupo_maximo',
+        ]) + ['estatus' => $request->input('estatus', true)], $request->horarios));
 
-            foreach ($request->horarios as $h) {
-                \Illuminate\Support\Facades\DB::table('horario')->insert([
-                    'id_grupo'    => $grupo->id_grupo,
-                    'dia_semana'  => (int) $h['dia_semana'],
-                    'hora_inicio' => $h['hora_inicio'],
-                    'hora_fin'    => $h['hora_fin'],
-                    'ubicacion'   => $h['ubicacion'] ?? '',
-                ]);
-            }
-            SincronizadorCore::grupo((int) $grupo->id_grupo);
-        });
-
-        return response()->json(['message' => 'Grupo creado correctamente.', 'id' => $grupo->id_grupo]);
+        return response()->json(['message' => 'Grupo creado correctamente.', 'id' => $id]);
     }
 
     public function obtenerGrupo($id)
@@ -825,7 +679,7 @@ class AdminController extends Controller
 
     public function editarGrupo(Request $request, $id)
     {
-        $grupo = \App\Models\Academico\Grupo::find((int) $id);
+        $grupo = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')->where('id_grupo', (int) $id)->first();
         if (!$grupo) return response()->json(['error' => 'Grupo no encontrado.'], 404);
 
         $validator = Validator::make($request->all(), [
@@ -843,39 +697,21 @@ class AdminController extends Controller
         if ($validator->fails())
             return response()->json(['errors' => $validator->errors()], 422);
 
-        $grupo->id_curso     = $request->id_curso;
-        $grupo->id_profesor  = $request->id_profesor;
-        $grupo->codigo_grupo = $request->codigo_grupo;
-        $grupo->nombre = $request->input('nombre', $grupo->nombre ?? '');
-        $grupo->periodo = $request->input('periodo', '');
-        $grupo->fecha_inicio = $request->fecha_inicio;
-        $grupo->fecha_fin    = $request->fecha_fin;
-        $grupo->cupo_maximo  = $request->cupo_maximo;
-        $grupo->estatus      = filter_var($request->input('estatus', $grupo->estatus), FILTER_VALIDATE_BOOLEAN);
-        DB::transaction(function () use ($grupo, $request) {
-            $grupo->save();
-
-            \Illuminate\Support\Facades\DB::table('horario')->where('id_grupo', $grupo->id_grupo)->delete();
-            foreach ($request->horarios as $h) {
-                \Illuminate\Support\Facades\DB::table('horario')->insert([
-                    'id_grupo'    => $grupo->id_grupo,
-                    'dia_semana'  => (int) $h['dia_semana'],
-                    'hora_inicio' => $h['hora_inicio'],
-                    'hora_fin'    => $h['hora_fin'],
-                    'ubicacion'   => $h['ubicacion'] ?? '',
-                ]);
-            }
-            SincronizadorCore::grupo((int) $grupo->id_grupo);
-        });
+        DB::transaction(fn () => EscrituraCore::grupo((int) $id, [
+            'nombre'  => $request->input('nombre', $grupo->nombre),
+            'estatus' => $request->input('estatus', $grupo->estatus),
+        ] + $request->only([
+            'id_curso', 'id_profesor', 'codigo_grupo', 'periodo', 'fecha_inicio', 'fecha_fin', 'cupo_maximo',
+        ]), $request->horarios));
 
         return response()->json(['message' => 'Grupo actualizado correctamente.']);
     }
 
     public function eliminarGrupo($id)
     {
-        $activos = \Illuminate\Support\Facades\DB::table('inscripcion')
+        $activos = DB::table('academico.inscripcion')
             ->where('id_grupo', (int) $id)
-            ->where('estatus', true)
+            ->whereIn('estado', ['activa', 'lista_espera'])
             ->count();
 
         if ($activos > 0)
@@ -886,11 +722,7 @@ class AdminController extends Controller
         // Si el grupo tiene historial (inscripciones dadas de baja o facturas) la BD no deja borrarlo;
         // en ese caso no se toca nada, ni siquiera los horarios.
         try {
-            \Illuminate\Support\Facades\DB::transaction(function () use ($id) {
-                \Illuminate\Support\Facades\DB::table('horario')->where('id_grupo', (int) $id)->delete();
-                \App\Models\Academico\Grupo::destroy((int) $id);
-                SincronizadorCore::eliminarGrupo((int) $id);
-            });
+            DB::transaction(fn () => EscrituraCore::eliminarGrupo((int) $id));
         } catch (\Illuminate\Database\QueryException $e) {
             if ($e->getCode() === '23503') {
                 return response()->json([
@@ -1000,22 +832,11 @@ $alumnos = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
         if ($validator->fails())
             return response()->json(['errors' => $validator->errors()], 422);
 
-        $curso = new \App\Models\Academico\Curso();
-        $curso->nombre           = $request->nombre;
-        $curso->id_sede          = $request->id_sede;
-        $curso->nivel            = $request->filled('nivel') ? (int) $request->nivel : null;
-        $curso->duracion_semanas = (int) $request->input('duracion_semanas', 0);
-        $curso->horas_totales    = (int) $request->input('horas_totales', 0);
-        $curso->costo_base       = $request->input('costo_base');
-        $curso->estatus          = filter_var($request->input('estatus', true), FILTER_VALIDATE_BOOLEAN);
-        $curso->descripcion      = $request->input('descripcion');
-        $curso->requisitos       = $request->input('requisitos');
-        DB::transaction(function () use ($curso) {
-            $curso->save();
-            SincronizadorCore::curso((int) $curso->id_curso);
-        });
+        $id = DB::transaction(fn () => EscrituraCore::curso(null, $request->only([
+            'nombre', 'id_sede', 'nivel', 'duracion_semanas', 'horas_totales', 'costo_base', 'descripcion', 'requisitos',
+        ]) + ['estatus' => $request->input('estatus', true)]));
 
-        return response()->json(['message' => 'Curso creado correctamente.', 'id' => $curso->id_curso]);
+        return response()->json(['message' => 'Curso creado correctamente.', 'id' => $id]);
     }
 
     public function obtenerCurso($id)
@@ -1033,7 +854,7 @@ $alumnos = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
 
     public function editarCurso(Request $request, $id)
     {
-        $curso = \App\Models\Academico\Curso::find((int) $id);
+        $curso = DB::query()->fromSub(LecturaCore::cursos(), 'curso')->where('id_curso', (int) $id)->first();
         if (!$curso) return response()->json(['error' => 'Curso no encontrado.'], 404);
 
         $validator = Validator::make($request->all(), [
@@ -1044,32 +865,25 @@ $alumnos = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
         if ($validator->fails())
             return response()->json(['errors' => $validator->errors()], 422);
 
-        $curso->nombre           = $request->nombre;
-        $curso->id_sede          = $request->id_sede;
-        if ($request->has('nivel')) {
-            $curso->nivel        = $request->filled('nivel') ? (int) $request->nivel : null;
-        }
-        $curso->duracion_semanas = $request->input('duracion_semanas') ?? $curso->duracion_semanas;
-        $curso->horas_totales    = $request->input('horas_totales')    ?? $curso->horas_totales;
-        $curso->costo_base       = $request->input('costo_base')       ?? $curso->costo_base;
-        $curso->estatus          = filter_var($request->input('estatus', $curso->estatus), FILTER_VALIDATE_BOOLEAN);
-        $curso->descripcion      = $request->input('descripcion', $curso->descripcion);
-        $curso->requisitos       = $request->input('requisitos',  $curso->requisitos);
-        DB::transaction(function () use ($curso) {
-            $curso->save();
-            SincronizadorCore::curso((int) $curso->id_curso);
-            // Cambiar la sede del curso cambia la sede de sus grupos en v2.2
-            foreach (DB::table('grupo')->where('id_curso', $curso->id_curso)->pluck('id_grupo') as $idGrupo) {
-                SincronizadorCore::grupo((int) $idGrupo);
-            }
-        });
+        // Lo que el formulario no mande se queda como está
+        DB::transaction(fn () => EscrituraCore::curso((int) $id, [
+            'nombre'           => $request->nombre,
+            'id_sede'          => $request->id_sede,
+            'nivel'            => $request->has('nivel') ? $request->nivel : $curso->nivel,
+            'duracion_semanas' => $request->input('duracion_semanas') ?? $curso->duracion_semanas,
+            'horas_totales'    => $request->input('horas_totales') ?? $curso->horas_totales,
+            'costo_base'       => $request->input('costo_base') ?? $curso->costo_base,
+            'estatus'          => $request->input('estatus', $curso->estatus),
+            'descripcion'      => $request->input('descripcion', $curso->descripcion),
+            'requisitos'       => $request->input('requisitos', $curso->requisitos),
+        ]));
 
         return response()->json(['message' => 'Curso actualizado correctamente.']);
     }
 
     public function eliminarCurso($id)
     {
-        $activos = \Illuminate\Support\Facades\DB::table('grupo')
+        $activos = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
             ->where('id_curso', (int) $id)
             ->where('estatus', true)
             ->count();
@@ -1080,10 +894,7 @@ $alumnos = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
             ], 422);
 
         try {
-            DB::transaction(function () use ($id) {
-                \App\Models\Academico\Curso::destroy((int) $id);
-                SincronizadorCore::eliminarCurso((int) $id);
-            });
+            DB::transaction(fn () => EscrituraCore::eliminarCurso((int) $id));
         } catch (\Illuminate\Database\QueryException $e) {
             if ($e->getCode() === '23503') {
                 return response()->json([

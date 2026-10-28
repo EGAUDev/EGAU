@@ -5,10 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Services\LecturaCore;
-use App\Services\SincronizadorCore;
-use App\Models\Academico\Factura;
-use App\Models\Alumno;
-use App\Models\Sede;
+use App\Services\EscrituraCore;
 
 class FacturaController extends Controller
 {
@@ -140,17 +137,13 @@ class FacturaController extends Controller
             return response()->json(['error' => 'Vigencia inválida. Solo se permite "pagado" o "cancelado".'], 422);
         }
 
-        $factura = Factura::find((int) $id);
-
-        if (!$factura) {
+        if (!DB::table('finanzas.cargo')->where('id', (int) $id)->exists()) {
             return response()->json(['error' => 'Factura no encontrada'], 404);
         }
 
-        $factura->vigencia = $vigencia;
-        DB::transaction(function () use ($factura) {
-            $factura->save();
-            SincronizadorCore::cargo((int) $factura->id_factura);
-        });
+        DB::transaction(fn () => $vigencia === 'pagado'
+            ? EscrituraCore::pagarCargo((int) $id)
+            : EscrituraCore::cancelarCargo((int) $id));
 
         return response()->json(['message' => 'Vigencia actualizada correctamente.', 'vigencia' => $vigencia]);
     }

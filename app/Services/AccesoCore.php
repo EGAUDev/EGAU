@@ -1,21 +1,17 @@
 <?php
 namespace App\Services;
 
-use App\Models\Alumno;
-use App\Models\Personal;
-use App\Models\Profesor;
-use Illuminate\Database\Eloquent\Model;
+use App\Models\Core\Usuario;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 /**
  * Acceso con el esquema v2.2 (core.usuario, core.perfil, core.usuario_rol).
- *
- * Mientras el resto del sistema siga usando las tablas viejas de public, el
- * token de Sanctum se sigue emitiendo sobre el modelo viejo (Alumno, Profesor
- * o Personal). El enlace entre ambos vive en core.perfil.atributos
- * ({"tabla_legacy", "id_legacy"}) y en migracion.mapa, que llena
- * 01-migracion-auth.sql.
+ * El token de Sanctum se emite sobre core.usuario y se llama como el tipo con
+ * el que se entró (alumno, profesor o personal). En la sesión quedan
+ * id_usuario, id_persona y tipo; los ids de alumno, profesor y personal son
+ * el id de core.persona.
  */
 class AccesoCore
 {
@@ -40,12 +36,6 @@ class AccesoCore
         'pagos_edit'             => 'cargo.editar',
         'niveles_ver'            => 'nivel.ver',
         'niveles_edit'           => 'nivel.editar',
-    ];
-
-    private const MODELOS_LEGACY = [
-        'alumno'   => Alumno::class,
-        'profesor' => Profesor::class,
-        'personal' => Personal::class,
     ];
 
     public static function buscarUsuario(string $login): ?object
@@ -108,33 +98,32 @@ class AccesoCore
         return null;
     }
 
-    /** Modelo viejo (Alumno, Profesor o Personal) ligado a un perfil v2.2. */
-    public static function modeloLegacy(object $perfil): ?Model
+    /** Cuenta y perfil del dueño de un token (el nombre del token es el tipo con el que entró). */
+    public static function desdeToken(Usuario $usuario, string $tipo): ?object
     {
-        $atributos = json_decode($perfil->atributos ?? '{}', true) ?: [];
-        $clase = self::MODELOS_LEGACY[$atributos['tabla_legacy'] ?? ''] ?? null;
-
-        if (!$clase || !isset($atributos['id_legacy'])) {
-            return null;
-        }
-        return $clase::find($atributos['id_legacy']);
+        return DB::selectOne(
+            "SELECT u.id AS id_usuario, u.id_persona, u.estado, p.tipo, p.id_sede, p.estado AS estado_perfil
+               FROM core.usuario u
+               JOIN core.perfil p ON p.id_persona = u.id_persona AND p.tipo = ?
+              WHERE u.id = ?",
+            [$tipo, $usuario->id]
+        );
     }
 
-    /** Usuario y perfil v2.2 que corresponden al dueño de un token de Sanctum. */
-    public static function desdeModeloLegacy(Model $modelo): ?object
+    /**
+     * Persona con la sesión abierta, si entró con ese tipo. Las rutas web la
+     * toman de la sesión; las de api (auth:sanctum), del token.
+     */
+    public static function personaActual(string $tipo, ?Request $request = null): ?int
     {
-        $tabla = array_search(get_class($modelo), self::MODELOS_LEGACY, true);
-        if ($tabla === false) {
-            return null;
+        if (session('tipo') === $tipo && session('id_persona')) {
+            return (int) session('id_persona');
         }
-
-        return DB::selectOne(
-            "SELECT u.id AS id_usuario, u.estado, u.bloqueado_hasta, p.tipo, p.id_sede, p.estado AS estado_perfil
-               FROM core.perfil p
-               JOIN core.usuario u ON u.id_persona = p.id_persona
-              WHERE p.tipo = ? AND p.atributos->>'tabla_legacy' = ? AND p.atributos->>'id_legacy' = ?",
-            [$tabla, $tabla, (string) $modelo->getKey()]
-        );
+        $usuario = $request?->user();
+        if ($usuario instanceof Usuario && $usuario->tipoSesion() === $tipo) {
+            return (int) $usuario->id_persona;
+        }
+        return null;
     }
 
     /** Claves de core.permiso que hoy le dan sus roles vigentes (ej. "alumno.ver"). */
@@ -162,7 +151,7 @@ class AccesoCore
     /**
      * Lo que la sesión necesita para pintar el dashboard, con los mismos
      * nombres que antes: permisos (banderas *_ver / *_edit), administrativo
-     * (rol con alcance global) e id_sede (id de la sede en public).
+     * (rol con alcance global) e id_sede (del perfil del personal).
      */
     public static function contexto(int $idUsuario, string $tipo, ?int $idSedeCore): array
     {
@@ -179,13 +168,7 @@ class AccesoCore
         $administrativo = self::esGlobal($idUsuario);
 
         // Como antes, solo el personal trae sede en la sesión
-        $idSede = null;
-        if ($tipo === 'personal' && $idSedeCore !== null) {
-            $idSede = DB::selectOne(
-                "SELECT id_origen FROM migracion.mapa WHERE tabla_origen = 'sede' AND id_nuevo = ?",
-                [$idSedeCore]
-            )?->id_origen;
-        }
+        $idSede = $tipo === 'personal' ? $idSedeCore : null;
 
         return [
             'permisos'       => $permisos,

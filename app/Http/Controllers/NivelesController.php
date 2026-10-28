@@ -6,7 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Services\LecturaCore;
-use App\Services\SincronizadorCore;
+use App\Services\EscrituraCore;
 
 class NivelesController extends Controller
 {
@@ -18,7 +18,7 @@ class NivelesController extends Controller
     public function listar(Request $request)
     {
         $administrativo = filter_var(session('administrativo', false), FILTER_VALIDATE_BOOLEAN);
-        $idPersonal     = session('id_personal');
+        $idPersonal     = session('id_persona');
         $idSedeSesion   = session('id_sede');
         $tipo       = session('tipo', 'personal');
         $idProfesor = session('id_profesor');
@@ -136,7 +136,7 @@ if ($tipo === 'profesor' && $idProfesor) {
     public function grupos(Request $request)
     {
         $administrativo = filter_var(session('administrativo', false), FILTER_VALIDATE_BOOLEAN);
-        $idPersonal     = session('id_personal');
+        $idPersonal     = session('id_persona');
         $idSedeSesion   = session('id_sede');
         $tipo       = session('tipo', 'personal');
         $idProfesor = session('id_profesor');
@@ -180,7 +180,7 @@ return response()->json(['data' => $grupos]);
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $alumno = DB::table('alumno')->where('id_alumno', (int) $id)->first();
+        $alumno = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')->where('id_alumno', (int) $id)->first();
 
         if (!$alumno) {
             return response()->json(['error' => 'Alumno no encontrado.'], 404);
@@ -195,12 +195,8 @@ return response()->json(['data' => $grupos]);
             $nuevoPuntaje = max(0, $puntajeActual - $cantidad);
         }
 
-        DB::transaction(function () use ($id, $nuevoPuntaje) {
-            DB::table('alumno')
-                ->where('id_alumno', (int) $id)
-                ->update(['puntaje' => $nuevoPuntaje]);
-            SincronizadorCore::persona('alumno', (int) $id);   // rating en v2.2
-        });
+        DB::transaction(fn () => EscrituraCore::puntaje((int) $id, $nuevoPuntaje, 'Ajuste de puntaje (' . $request->operacion . ' ' . $cantidad . ')'));
+        $nuevoPuntaje = (int) DB::table('core.persona')->where('id', (int) $id)->value('rating');   // v2.2 topa el rating
 
         $rango = $this->calcularRango($nuevoPuntaje);
 

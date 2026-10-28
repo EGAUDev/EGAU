@@ -6,24 +6,23 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Laravel\Sanctum\PersonalAccessToken;
-use App\Models\Alumno;
 use App\Services\LecturaCore;
-use App\Services\SincronizadorCore;
-
-use App\Models\Tutor;
+use App\Services\AccesoCore;
+use App\Services\EscrituraCore;
 
 class AlumnoProfileController extends Controller
 {
-    private function getAlumnoActual(): ?Alumno
+    /** La persona con sesión abierta, con las columnas de LecturaCore::personas('alumno'). */
+    private function getAlumnoActual(): ?object
     {
-        $token = session('token');
-        if (!$token) return null;
+        $id = AccesoCore::personaActual('alumno');
+        return $id ? DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')->where('id_alumno', $id)->first() : null;
+    }
 
-        $accessToken = PersonalAccessToken::findToken($token);
-        if (!$accessToken || !($accessToken->tokenable instanceof Alumno)) return null;
-
-        return $accessToken->tokenable;
+    private static function passwordCorrecta(int $idPersona, string $password): bool
+    {
+        $hash = DB::table('core.usuario')->where('id_persona', $idPersona)->value('password_hash');
+        return $hash && Hash::check($password, $hash);
     }
 
     private function calcularNivel(int $puntaje): array
@@ -50,9 +49,6 @@ public function show()
 {
     $alumno = $this->getAlumnoActual();
     if (!$alumno) return response()->json(['error' => 'No autenticado'], 401);
-
-    $alumno = self::alumnos()->where('id_alumno', $alumno->id_alumno)->first();
-    if (!$alumno) return response()->json(['error' => 'No encontrado'], 404);
 
     $sede = DB::query()->fromSub(LecturaCore::sedes(), 'sede')->where('id_sede', $alumno->id_sede)->first();
     $tutor = $alumno->id_tutor
@@ -128,7 +124,7 @@ public function show()
             'nombre' => 'required|string|max:50',
             'apellido_p' => 'required|string|max:50',
             'apellido_m' => 'nullable|string|max:50',
-            'email' => 'required|email|max:100|unique:alumno,email,' . $alumno->id_alumno . ',id_alumno',
+            'email' => 'required|email|max:100',
             'telefono' => 'required|string|max:20',
             'calle' => 'nullable|string|max:255',
             'ciudad' => 'nullable|string|max:100',
@@ -140,23 +136,13 @@ public function show()
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        if (SincronizadorCore::correoOcupado($request->email, 'alumno', $alumno->id_alumno)) {
+        if (EscrituraCore::correoOcupado($request->email, (int) $alumno->id_alumno)) {
             return response()->json(['errors' => ['email' => ['Ese correo ya tiene una cuenta en el sistema.']]], 422);
         }
 
-        $alumno->nombre = $request->nombre;
-        $alumno->apellido_p = $request->apellido_p;
-        $alumno->apellido_m = $request->apellido_m;
-        $alumno->email = $request->email;
-        $alumno->telefono = $request->telefono;
-        $alumno->calle = $request->calle;
-        $alumno->ciudad = $request->ciudad;
-        $alumno->estado_residencia = $request->estado_residencia;
-        $alumno->codigo_postal = $request->codigo_postal;
-        DB::transaction(function () use ($alumno) {
-            $alumno->save();
-            SincronizadorCore::persona('alumno', $alumno->id_alumno);
-        });
+        DB::transaction(fn () => EscrituraCore::persona('alumno', (int) $alumno->id_alumno, $request->only([
+            'nombre', 'apellido_p', 'apellido_m', 'email', 'telefono', 'calle', 'ciudad', 'estado_residencia', 'codigo_postal',
+        ])));
 
         return response()->json(['message' => 'Perfil actualizado correctamente.']);
     }
@@ -176,7 +162,7 @@ public function show()
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        if (!Hash::check($request->contrasena_antigua, $alumno->contraseña)) {
+        if (!self::passwordCorrecta((int) $alumno->id_alumno, $request->contrasena_antigua)) {
             return response()->json(['error' => 'La contraseña antigua no es correcta.'], 422);
         }
 
@@ -184,11 +170,7 @@ public function show()
             return response()->json(['error' => 'La nueva contraseña y su confirmación no coinciden.'], 422);
         }
 
-        $alumno->contraseña = Hash::make($request->contrasena_nueva);
-        DB::transaction(function () use ($alumno) {
-            $alumno->save();
-            SincronizadorCore::persona('alumno', $alumno->id_alumno, true);
-        });
+        EscrituraCore::password((int) $alumno->id_alumno, $request->contrasena_nueva);
 
         return response()->json(['message' => 'Contraseña actualizada correctamente.']);
     }

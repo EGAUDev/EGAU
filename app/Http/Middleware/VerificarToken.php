@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Models\Core\Usuario;
 use Laravel\Sanctum\PersonalAccessToken;
 
 class VerificarToken
@@ -26,8 +27,15 @@ class VerificarToken
             return $this->rechazar($request, 'Sesión expirada');
         }
 
+        // El token es de la cuenta de core.usuario de esta sesión; los de antes
+        // del corte a v2.2 eran de alumno/profesor/personal: se pide volver a entrar.
+        if ($tokenValido->tokenable_type !== Usuario::class
+            || (int) $tokenValido->tokenable_id !== (int) session('id_usuario')
+            || $tokenValido->name !== session('tipo')) {
+            return $this->rechazar($request, 'Sesión expirada');
+        }
+
         // v2.2: la cuenta debe seguir activa en core.usuario.
-        // Una sesión sin id_usuario es de antes del cambio a v2.2: se pide volver a entrar.
         $cuenta = DB::selectOne(
             'SELECT estado FROM core.usuario WHERE id = ?',
             [(int) session('id_usuario')]

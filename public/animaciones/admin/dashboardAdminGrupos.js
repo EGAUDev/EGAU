@@ -456,7 +456,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     cerrarModalGrupo();
                     cargarGrupos(); // Refrescar
                 } else {
-                    alert(resData.error || 'Ocurrió un error (422)');
+                    alert(resData.error || Object.values(resData.errors || {}).flat()[0] || 'Ocurrió un error (422)');
                 }
             } catch (error) {
                 console.error("Error al guardar:", error);
@@ -686,7 +686,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     cerrarModalCurso();
                     cargarCursos(); // Refrescar
                 } else {
-                    alert(resData.error || 'Ocurrió un error (422)');
+                    alert(resData.error || Object.values(resData.errors || {}).flat()[0] || 'Ocurrió un error (422)');
                 }
             } catch (error) {
                 console.error("Error al guardar:", error);

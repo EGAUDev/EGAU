@@ -10,12 +10,22 @@ use Illuminate\Support\Facades\DB;
  * Migración v2.2 · parte 7: las pantallas ya leen de v2.2. Este comando pasa
  * los tutores que ya existen y compara, registro por registro, lo que hay en
  * las tablas viejas contra lo que las pantallas leen ahora de v2.2.
+ * Desde la parte 9 las pantallas usan los ids de v2.2: los ids viejos se
+ * traducen con migracion.mapa antes de comparar.
  * Se puede correr cuantas veces se quiera.
  */
 class RevisarLecturas extends Command
 {
     protected $signature = 'migracion:lecturas';
     protected $description = 'Pasa los tutores a v2.2 y compara las tablas viejas contra lo que se lee de v2.2';
+
+    // Columna de id -> tabla vieja en migracion.mapa (v2.2 tiene sus propios ids)
+    private const IDS = [
+        'id_sede' => 'sede', 'id_rol' => 'rol', 'id_tutor' => 'tutor', 'id_alumno' => 'alumno',
+        'id_profesor' => 'profesor', 'id_personal' => 'personal', 'id_curso' => 'curso', 'id_grupo' => 'grupo',
+        'id_inscripcion' => 'inscripcion', 'id_extraescolar' => 'extraescolar',
+        'id_inscripcionextra' => 'inscripcionextra', 'id_factura' => 'factura',
+    ];
 
     // Diferencias que ya se saben y no cuentan: v2.2 guarda el dato de otra forma
     private const IGNORAR = ['fecha_modificacion', 'fecha_registro', 'fecha_limite', 'fecha_asignacion', 'fecha_baja', 'motivo_baja', 'cupo_actual'];
@@ -48,11 +58,27 @@ class RevisarLecturas extends Command
             'factura'                 => [LecturaCore::facturas(), 'id_factura'],
         ];
 
+        $mapa = DB::table('migracion.mapa')->get()->groupBy('tabla_origen')
+            ->map(fn ($f) => $f->pluck('id_nuevo', 'id_origen')->all());
+        $nuevoId = function (string $col, $valor) use ($mapa) {
+            if ($valor === null || !isset(self::IDS[$col])) {
+                return $valor;
+            }
+            return $mapa[self::IDS[$col]][$valor] ?? "{$valor} (sin migrar)";
+        };
+
         $filas = [];
         $detalle = [];
         foreach ($tablas as $tabla => [$sub, $pk]) {
             $nuevo = DB::query()->fromSub($sub, 'x')->get()->keyBy($pk);
-            $viejo = DB::table($tabla)->get()->keyBy($pk);
+            $viejo = DB::table($tabla)->get()
+                ->map(function ($v) use ($nuevoId) {
+                    foreach ((array) $v as $col => $valor) {
+                        $v->$col = $nuevoId($col, $valor);
+                    }
+                    return $v;
+                })
+                ->keyBy($pk);
             $iguales = 0;
             foreach ($viejo as $id => $v) {
                 $n = $nuevo[$id] ?? null;
@@ -80,7 +106,8 @@ class RevisarLecturas extends Command
 
         // Horarios: v2.2 no guarda repetidos ni los que empalman al profesor
         $llave = "id_grupo || ' ' || dia_semana || ' ' || to_char(hora_inicio, 'HH24:MI') || '-' || to_char(hora_fin, 'HH24:MI')";
-        $h1 = DB::table('horario')->selectRaw("DISTINCT {$llave} AS k")->pluck('k')->all();
+        $h1 = DB::table('horario')->selectRaw("DISTINCT id_grupo, {$llave} AS k")->get()
+            ->map(fn ($h) => preg_replace('/^\d+/', (string) $nuevoId('id_grupo', $h->id_grupo), $h->k))->all();
         $h2 = DB::query()->fromSub(LecturaCore::horarios(), 'horario')->selectRaw("{$llave} AS k")->pluck('k')->all();
         foreach (array_diff($h1, $h2) as $k) {
             $detalle[] = "horario del grupo {$k}: no está en v2.2 (choca con otra clase del mismo profesor)";

@@ -6,22 +6,23 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use Laravel\Sanctum\PersonalAccessToken;
-use App\Models\Personal;
 use App\Services\LecturaCore;
-use App\Services\SincronizadorCore;
+use App\Services\AccesoCore;
+use App\Services\EscrituraCore;
 
 class PersonalProfileController extends Controller
 {
-    private function getPersonalActual(): ?Personal
+    /** La persona con sesión abierta, con las columnas de LecturaCore::personas('personal'). */
+    private function getPersonalActual(): ?object
     {
-        $token = session('token');
-        if (!$token) return null;
+        $id = AccesoCore::personaActual('personal');
+        return $id ? DB::query()->fromSub(LecturaCore::personas('personal'), 'personal')->where('id_personal', $id)->first() : null;
+    }
 
-        $accessToken = PersonalAccessToken::findToken($token);
-        if (!$accessToken || !($accessToken->tokenable instanceof Personal)) return null;
-
-        return $accessToken->tokenable;
+    private static function passwordCorrecta(int $idPersona, string $password): bool
+    {
+        $hash = DB::table('core.usuario')->where('id_persona', $idPersona)->value('password_hash');
+        return $hash && Hash::check($password, $hash);
     }
 
     public function show()
@@ -29,9 +30,6 @@ class PersonalProfileController extends Controller
         $p = $this->getPersonalActual();
         if (!$p) return response()->json(['error' => 'No autenticado'], 401);
 
-        $p = DB::query()->fromSub(LecturaCore::personas('personal'), 'personal')
-            ->where('id_personal', $p->id_personal)->first();
-        if (!$p) return response()->json(['error' => 'No encontrado'], 404);
         $rol = DB::query()->fromSub(LecturaCore::roles(), 'rol')->where('id_rol', $p->id_rol)->first();
 return response()->json([
     'nombre'             => $p->nombre,
@@ -58,7 +56,7 @@ return response()->json([
             'nombre'           => 'required|string|max:50',
             'apellido_p'       => 'required|string|max:50',
             'apellido_m'       => 'nullable|string|max:50',
-            'email'            => 'required|email|max:100|unique:personal,email,' . $p->id_personal . ',id_personal',
+            'email'            => 'required|email|max:100',
             'telefono'         => 'required|string|max:20',
             'fecha_nacimiento' => 'required|date',
             'genero'           => 'required|in:f,m,o',
@@ -68,22 +66,13 @@ return response()->json([
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        if (SincronizadorCore::correoOcupado($request->email, 'personal', $p->id_personal)) {
+        if (EscrituraCore::correoOcupado($request->email, (int) $p->id_personal)) {
             return response()->json(['errors' => ['email' => ['Ese correo ya tiene una cuenta en el sistema.']]], 422);
         }
 
-        $p->nombre             = $request->nombre;
-        $p->apellido_p         = $request->apellido_p;
-        $p->apellido_m         = $request->apellido_m;
-        $p->email              = $request->email;
-        $p->telefono           = $request->telefono;
-        $p->fecha_nacimiento   = $request->fecha_nacimiento;
-        $p->genero             = $request->genero;
-        $p->fecha_modificacion = now();
-        DB::transaction(function () use ($p) {
-            $p->save();
-            SincronizadorCore::persona('personal', $p->id_personal);
-        });
+        DB::transaction(fn () => EscrituraCore::persona('personal', (int) $p->id_personal, $request->only([
+            'nombre', 'apellido_p', 'apellido_m', 'email', 'telefono', 'fecha_nacimiento', 'genero',
+        ])));
 
         return response()->json(['message' => 'Perfil actualizado correctamente.']);
     }
@@ -103,7 +92,7 @@ return response()->json([
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        if (!Hash::check($request->contrasena_antigua, $p->contraseña)) {
+        if (!self::passwordCorrecta((int) $p->id_personal, $request->contrasena_antigua)) {
             return response()->json(['error' => 'La contraseña antigua no es correcta.'], 422);
         }
 
@@ -111,12 +100,7 @@ return response()->json([
             return response()->json(['error' => 'La nueva contraseña y su confirmación no coinciden.'], 422);
         }
 
-        $p->contraseña         = Hash::make($request->contrasena_nueva);
-        $p->fecha_modificacion = now();
-        DB::transaction(function () use ($p) {
-            $p->save();
-            SincronizadorCore::persona('personal', $p->id_personal, true);
-        });
+        EscrituraCore::password((int) $p->id_personal, $request->contrasena_nueva);
 
         return response()->json(['message' => 'Contraseña actualizada correctamente.']);
     }

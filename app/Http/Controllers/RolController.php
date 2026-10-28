@@ -5,10 +5,9 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
-use App\Models\Rol;
-use App\Models\Permiso;
+use App\Services\EscrituraCore;
 use App\Services\LecturaCore;
-use App\Services\SincronizadorCore;
+use Illuminate\Validation\Rule;
 
 class RolController extends Controller
 {
@@ -82,11 +81,12 @@ class RolController extends Controller
 public function crear(Request $request)
 {
     $validator = Validator::make($request->all(), [
-        'nombre'      => 'required|string|max:50|unique:rol,nombre',
+        'nombre'      => ['required', 'string', 'max:50', Rule::notIn(DB::table('core.rol')->pluck('nombre'))],
         'descripcion' => 'required|string',
         'estatus'     => 'required|boolean',
     ]);
 
+    $validator->setCustomMessages(['nombre.not_in' => 'Ya existe un rol con ese nombre.']);
     if ($validator->fails()) {
         return response()->json(['errors' => $validator->errors()], 422);
     }
@@ -95,27 +95,15 @@ public function crear(Request $request)
     $administrativo = $esAdmin ? filter_var($request->input('administrativo', false), FILTER_VALIDATE_BOOLEAN) : false;
 
     try {
-        DB::beginTransaction();
-        $permiso = new Permiso();
-        $this->llenarPermiso($permiso, $request);
-        $permiso->save();
+        $idRol = DB::transaction(fn () => EscrituraCore::rol(null, [
+            'nombre'         => $request->nombre,
+            'descripcion'    => $request->descripcion,
+            'estatus'        => $request->estatus,
+            'administrativo' => $administrativo,
+        ], $this->banderas($request)));
 
-        $rol = new Rol();
-        $rol->id_permiso         = $permiso->id_permiso;
-        $rol->nombre             = $request->nombre;
-        $rol->descripcion        = $request->descripcion;
-        $rol->estatus            = filter_var($request->estatus, FILTER_VALIDATE_BOOLEAN);
-        $rol->administrativo     = $administrativo;
-        $rol->fecha_registro     = now();
-        $rol->fecha_modificacion = now();
-        $rol->save();
-
-        SincronizadorCore::rol($rol->id_rol);
-        DB::commit();
-
-        return response()->json(['message' => 'Rol creado correctamente.', 'id_rol' => $rol->id_rol], 201);
+        return response()->json(['message' => 'Rol creado correctamente.', 'id_rol' => $idRol], 201);
     } catch (\Throwable $e) {
-        DB::rollBack();
         return response()->json(['error' => 'Error al crear el rol: ' . $e->getMessage()], 500);
     }
 }
@@ -133,49 +121,39 @@ public function crear(Request $request)
         return response()->json(['error' => 'El rol de administrador central no puede modificarse.'], 403);
     }
 
-    $rol = Rol::find((int) $id);
+    $rol = DB::query()->fromSub(LecturaCore::roles(), 'rol')->where('id_rol', (int) $id)->first();
 
     if (!$rol) {
         return response()->json(['error' => 'Rol no encontrado'], 404);
     }
 
     $validator = Validator::make($request->all(), [
-        'nombre'      => 'required|string|max:50|unique:rol,nombre,' . $id . ',id_rol',
+        'nombre'      => ['required', 'string', 'max:50', Rule::notIn(DB::table('core.rol')->where('id', '!=', (int) $id)->pluck('nombre'))],
         'descripcion' => 'required|string',
         'estatus'     => 'required|boolean',
     ]);
 
+    $validator->setCustomMessages(['nombre.not_in' => 'Ya existe un rol con ese nombre.']);
     if ($validator->fails()) {
         return response()->json(['errors' => $validator->errors()], 422);
     }
 
     $esAdmin = filter_var(session('administrativo', false), FILTER_VALIDATE_BOOLEAN);
 
+    $datos = [
+        'nombre'      => $request->nombre,
+        'descripcion' => $request->descripcion,
+        'estatus'     => $request->estatus,
+    ];
+    if ($esAdmin) {
+        $datos['administrativo'] = filter_var($request->input('administrativo', false), FILTER_VALIDATE_BOOLEAN);
+    }
+
     try {
-        DB::beginTransaction();
-        $permiso = Permiso::find($rol->id_permiso);
-        if ($permiso) {
-            $this->llenarPermiso($permiso, $request);
-            $permiso->save();
-        }
-
-        $rol->nombre             = $request->nombre;
-        $rol->descripcion        = $request->descripcion;
-        $rol->estatus            = filter_var($request->estatus, FILTER_VALIDATE_BOOLEAN);
-        $rol->fecha_modificacion = now();
-
-        if ($esAdmin) {
-            $rol->administrativo = filter_var($request->input('administrativo', false), FILTER_VALIDATE_BOOLEAN);
-        }
-
-        $rol->save();
-
-        SincronizadorCore::rol($rol->id_rol);
-        DB::commit();
+        DB::transaction(fn () => EscrituraCore::rol((int) $id, $datos, $this->banderas($request)));
 
         return response()->json(['message' => 'Rol actualizado correctamente.']);
     } catch (\Throwable $e) {
-        DB::rollBack();
         return response()->json(['error' => 'Error al actualizar el rol: ' . $e->getMessage()], 500);
     }
 }
@@ -190,55 +168,37 @@ public function crear(Request $request)
         return response()->json(['error' => 'El rol de administrador central no puede eliminarse.'], 403);
     }
 
-    $rol = Rol::find((int) $id);
+    $rol = DB::query()->fromSub(LecturaCore::roles(), 'rol')->where('id_rol', (int) $id)->first();
 
     if (!$rol) {
         return response()->json(['error' => 'Rol no encontrado'], 404);
     }
 
-    $enUso = DB::table('personal')->where('id_rol', (int) $id)->exists();
+    $enUso = DB::table('core.usuario_rol')->where('id_rol', (int) $id)->exists();
     if ($enUso) {
         return response()->json(['error' => 'No se puede eliminar el rol porque tiene personal asignado.'], 409);
     }
 
     try {
-        DB::beginTransaction();
-        $idPermiso = $rol->id_permiso;
-        SincronizadorCore::eliminarRol($rol->id_rol);
-        $rol->delete();
-
-        if ($idPermiso) {
-            Permiso::find($idPermiso)?->delete();
-        }
-        DB::commit();
+        DB::transaction(fn () => EscrituraCore::eliminarRol((int) $id));
 
         return response()->json(['message' => 'Rol eliminado correctamente.']);
     } catch (\Throwable $e) {
-        DB::rollBack();
         return response()->json(['error' => 'Error al eliminar: ' . $e->getMessage()], 500);
     }
 }
 
     // -------------------------------------------------------
-    // Helper: llenar campos de permiso desde request
+    // Helper: casillas de permisos que mandó el formulario
     // -------------------------------------------------------
-    private function llenarPermiso(Permiso $permiso, Request $request): void
+    private function banderas(Request $request): array
     {
-        $campos = [
-            'alumno_ver', 'alumno_edit',
-            'profesor_ver', 'profesor_edit',
-            'personal_ver', 'personal_edit',
-            'roles_ver', 'roles_edit',
-            'sedes_ver', 'sedes_edit',
-            'grupos_ver', 'grupos_edit',
-            'extracurriculares_ver', 'extracurriculares_edit',
-            'estatus_ver',
-            'pagos_ver', 'pagos_edit',
-            'niveles_ver', 'niveles_edit',
-        ];
+        $campos = array_keys(LecturaCore::BANDERAS);
 
+        $banderas = [];
         foreach ($campos as $campo) {
-            $permiso->$campo = (bool) $request->input($campo, false);
+            $banderas[$campo] = filter_var($request->input($campo, false), FILTER_VALIDATE_BOOLEAN);
         }
+        return $banderas;
     }
 }

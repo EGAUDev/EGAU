@@ -5,23 +5,16 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Services\LecturaCore;
-use App\Services\SincronizadorCore;
-use Laravel\Sanctum\PersonalAccessToken;
-use App\Models\Alumno;
+use App\Services\AccesoCore;
+use App\Services\EscrituraCore;
 
 class AlumnoGruposController extends Controller
 {
-    private function getAlumnoActual(): ?Alumno
+    /** El alumno con sesión abierta, con las columnas de LecturaCore::personas('alumno'). */
+    private function getAlumnoActual(): ?object
     {
-        $token = session('token');
-        if (!$token)
-            return null;
-
-        $accessToken = PersonalAccessToken::findToken($token);
-        if (!$accessToken || !($accessToken->tokenable instanceof Alumno))
-            return null;
-
-        return $accessToken->tokenable;
+        $idAlumno = AccesoCore::personaActual('alumno');
+        return $idAlumno ? DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')->where('id_alumno', $idAlumno)->first() : null;
     }
 
     /**
@@ -83,9 +76,7 @@ class AlumnoGruposController extends Controller
         if (!$alumno)
             return response()->json(['error' => 'No autenticado'], 401);
 
-        // Puntaje y sede del alumno desde v2.2
-        $datos = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
-            ->where('id_alumno', $alumno->id_alumno)->first() ?? $alumno;
+        $datos = $alumno;
 
         $misInscripciones = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
             ->where('id_alumno', $alumno->id_alumno)
@@ -123,7 +114,7 @@ class AlumnoGruposController extends Controller
         if (!$alumno)
             return response()->json(['message' => 'No autenticado'], 401);
 
-        $grupo = DB::table('grupo')->where('id_grupo', $id)->first();
+        $grupo = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')->where('id_grupo', (int) $id)->first();
         if (!$grupo)
             return response()->json(['message' => 'Grupo no encontrado'], 404);
 
@@ -148,45 +139,34 @@ class AlumnoGruposController extends Controller
                 return response()->json(['message' => 'El grupo está lleno.'], 400);
             }
 
-            $yaInscrito = DB::table('inscripcion')
+            $yaInscrito = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
                 ->where('id_alumno', $alumno->id_alumno)
-                ->where('id_grupo', $id)
+                ->where('id_grupo', (int) $id)
                 ->where('estatus', true)
                 ->exists();
 
             if ($yaInscrito)
                 return response()->json(['message' => 'Ya estás inscrito en este grupo.'], 400);
 
-            DB::transaction(function () use ($alumno, $id, $grupo, $curso) {
-                $id_inscripcion = DB::table('inscripcion')->insertGetId([
-                    'id_alumno' => $alumno->id_alumno,
-                    'id_grupo' => $id,
-                    'fecha_asignacion' => now(),
-                    'estatus' => true
-                ], 'id_inscripcion');
-
-                DB::table('grupo')->where('id_grupo', $id)->increment('cupo_actual');
-
-                $id_factura = DB::table('factura')->insertGetId([
-                    'id_alumno' => $alumno->id_alumno,
-                    'id_inscripcion' => $id_inscripcion,
-                    'fecha_emision' => now(),
-                    'fecha_limite' => now()->addMonth(),
-                    'total_pago' => $curso->costo_base ?? 0,
-                    'vigencia' => 'enproceso',
-                    'descripcion' => $curso->descripcion ?? 'Inscripción a curso',
-                    'concepto' => 'Pago de inscripcion a grupo ' . $grupo->codigo_grupo
-                ], 'id_factura');
-                SincronizadorCore::inscripcion((int) $id_inscripcion);
-                SincronizadorCore::cargo((int) $id_factura);
-            });
+            try {
+                DB::transaction(function () use ($alumno, $id, $grupo, $curso) {
+                    $idInscripcion = EscrituraCore::inscribir((int) $alumno->id_alumno, (int) $id);
+                    EscrituraCore::cargo(
+                        (int) $alumno->id_alumno, $idInscripcion, 'inscripcion',
+                        'Pago de inscripcion a grupo ' . $grupo->codigo_grupo, $curso->descripcion ?? 'Inscripción a curso',
+                        (float) ($curso->costo_base ?? 0), now()->addMonth()->toDateString()
+                    );
+                });
+            } catch (\App\Services\ErrorDeDatos $e) {
+                return response()->json(['message' => 'El grupo está lleno.'], 400);
+            }
 
             return response()->json(['message' => '¡Te has inscrito al grupo exitosamente!']);
 
         } elseif ($accion === 'cancelar') {
-            $inscripcion = DB::table('inscripcion')
+            $inscripcion = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
                 ->where('id_alumno', $alumno->id_alumno)
-                ->where('id_grupo', $id)
+                ->where('id_grupo', (int) $id)
                 ->where('estatus', true)
                 ->first();
 
@@ -194,7 +174,7 @@ class AlumnoGruposController extends Controller
                 return response()->json(['message' => 'No estás inscrito en este grupo.'], 404);
             }
 
-            $factura = DB::table('factura')
+            $factura = DB::query()->fromSub(LecturaCore::facturas(), 'factura')
                 ->where('id_inscripcion', $inscripcion->id_inscripcion)
                 ->where('id_alumno', $alumno->id_alumno)
                 ->first();
@@ -208,19 +188,10 @@ class AlumnoGruposController extends Controller
                 ], 400);
             }
 
-            DB::transaction(function () use ($inscripcion, $id, $factura) {
-                DB::table('inscripcion')
-                    ->where('id_inscripcion', $inscripcion->id_inscripcion)
-                    ->update(['estatus' => false]);
-
-                DB::table('grupo')->where('id_grupo', $id)->decrement('cupo_actual');
-                SincronizadorCore::inscripcion((int) $inscripcion->id_inscripcion);
-
+            DB::transaction(function () use ($inscripcion, $factura) {
+                EscrituraCore::darDeBaja((int) $inscripcion->id_inscripcion, 'Cancelada por el alumno');
                 if ($factura && $factura->vigencia !== 'pagado') {
-                    DB::table('factura')
-                        ->where('id_factura', $factura->id_factura)
-                        ->update(['vigencia' => 'cancelado']);
-                    SincronizadorCore::cargo((int) $factura->id_factura);
+                    EscrituraCore::cancelarCargo((int) $factura->id_factura, 'Inscripción cancelada por el alumno');
                 }
             });
 

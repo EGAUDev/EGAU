@@ -2,6 +2,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Models\Core\Usuario;
 use App\Services\AccesoCore;
 
 class AuthController extends Controller
@@ -53,24 +54,24 @@ public function login(Request $request)
     }
 
     $perfil = AccesoCore::perfilParaLogin($cuenta->id_persona, $tipo);
-    // El resto del sistema aún usa las tablas viejas: el token se emite sobre ese registro
-    $usuario = $perfil ? AccesoCore::modeloLegacy($perfil) : null;
 
-    if (!$usuario) {
-        AccesoCore::registrarIntento($login, false, $ip, $perfil ? 'sin_registro_legacy' : 'sin_perfil_' . $tipo);
+    if (!$perfil) {
+        AccesoCore::registrarIntento($login, false, $ip, 'sin_perfil_' . $tipo);
         return $credencialesInvalidas();
     }
 
     AccesoCore::registrarIntento($login, true, $ip);
 
     $tipo = $perfil->tipo;
-    $token = $usuario->createToken('api-token', expiresAt: now()->addMinutes(config('sanctum.expiration')))->plainTextToken;
+    $usuario = Usuario::find($cuenta->id);
+    // El nombre del token es el tipo con el que entró (una persona puede ser alumno y profesor)
+    $token = $usuario->createToken($tipo, expiresAt: now()->addMinutes(config('sanctum.expiration')))->plainTextToken;
     $contexto = AccesoCore::contexto($cuenta->id, $tipo, $perfil->id_sede);
 
     return response()->json([
         'token' => $token,
         'tipo' => $tipo,
-        'usuario' => $usuario,
+        'usuario' => ['id_persona' => $cuenta->id_persona, 'usuario_login' => $cuenta->usuario_login],
         'permisos' => $contexto['permisos'],
         'administrativo' => $contexto['administrativo'],
         'id_sede' => $contexto['id_sede'],

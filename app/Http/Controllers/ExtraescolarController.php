@@ -6,9 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Services\LecturaCore;
-use App\Services\SincronizadorCore;
-use App\Models\Academico\Extraescolar;
-use App\Models\Academico\InscripcionExtraescolar;
+use App\Services\EscrituraCore;
 
 class ExtraescolarController extends Controller
 {
@@ -101,23 +99,12 @@ class ExtraescolarController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $actividad = new Extraescolar();
-        $actividad->nombre           = $request->nombre;
-        $actividad->cupo_maximo      = $request->cupo_maximo;
-        $actividad->duracion_semanas = $request->duracion_semanas;
-        $actividad->costo_base       = $request->costo_base;
-        $actividad->fecha_inicio     = $request->fecha_inicio;
-        $actividad->fecha_fin        = $request->fecha_fin;
-        $actividad->estatus          = filter_var($request->estatus, FILTER_VALIDATE_BOOLEAN);
-        $actividad->ubicacion        = $request->ubicacion;
-        $actividad->descripcion      = $request->descripcion;
-        $actividad->requisitos       = $request->requisitos;
-        DB::transaction(function () use ($actividad) {
-            $actividad->save();
-            SincronizadorCore::extraescolar((int) $actividad->id_extraescolar);
-        });
+        $id = DB::transaction(fn () => EscrituraCore::extraescolar(null, $request->only([
+            'nombre', 'cupo_maximo', 'duracion_semanas', 'costo_base', 'fecha_inicio', 'fecha_fin',
+            'estatus', 'ubicacion', 'descripcion', 'requisitos',
+        ])));
 
-        return response()->json(['message' => 'Actividad creada correctamente.', 'id' => $actividad->id_extraescolar], 201);
+        return response()->json(['message' => 'Actividad creada correctamente.', 'id' => $id], 201);
     }
 
     // -------------------------------------------------------
@@ -125,7 +112,7 @@ class ExtraescolarController extends Controller
     // -------------------------------------------------------
     public function editar(Request $request, $id)
     {
-        $actividad = Extraescolar::find((int) $id);
+        $actividad = DB::query()->fromSub(LecturaCore::extraescolares(), 'extraescolar')->where('id_extraescolar', (int) $id)->first();
 
         if (!$actividad) {
             return response()->json(['error' => 'Actividad no encontrada'], 404);
@@ -148,20 +135,10 @@ class ExtraescolarController extends Controller
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
-        $actividad->nombre           = $request->nombre;
-        $actividad->cupo_maximo      = $request->cupo_maximo;
-        $actividad->duracion_semanas = $request->duracion_semanas;
-        $actividad->costo_base       = $request->costo_base;
-        $actividad->fecha_inicio     = $request->fecha_inicio;
-        $actividad->fecha_fin        = $request->fecha_fin;
-        $actividad->estatus          = filter_var($request->estatus, FILTER_VALIDATE_BOOLEAN);
-        $actividad->ubicacion        = $request->ubicacion;
-        $actividad->descripcion      = $request->descripcion;
-        $actividad->requisitos       = $request->requisitos;
-        DB::transaction(function () use ($actividad) {
-            $actividad->save();
-            SincronizadorCore::extraescolar((int) $actividad->id_extraescolar);
-        });
+        DB::transaction(fn () => EscrituraCore::extraescolar((int) $id, $request->only([
+            'nombre', 'cupo_maximo', 'duracion_semanas', 'costo_base', 'fecha_inicio', 'fecha_fin',
+            'estatus', 'ubicacion', 'descripcion', 'requisitos',
+        ])));
 
         return response()->json(['message' => 'Actividad actualizada correctamente.']);
     }
@@ -172,13 +149,14 @@ class ExtraescolarController extends Controller
     // -------------------------------------------------------
     public function eliminar($id)
     {
-        $actividad = Extraescolar::find((int) $id);
+        $actividad = DB::query()->fromSub(LecturaCore::extraescolares(), 'extraescolar')->where('id_extraescolar', (int) $id)->first();
 
         if (!$actividad) {
             return response()->json(['error' => 'Actividad no encontrada'], 404);
         }
 
-        $tieneInscritos = InscripcionExtraescolar::where('id_extraescolar', (int) $id)
+        $tieneInscritos = DB::query()->fromSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar')
+            ->where('id_extraescolar', (int) $id)
             ->where('status', true)
             ->exists();
 
@@ -189,10 +167,7 @@ class ExtraescolarController extends Controller
         }
 
         try {
-            DB::transaction(function () use ($actividad, $id) {
-                $actividad->delete();
-                SincronizadorCore::eliminarExtraescolar((int) $id);
-            });
+            DB::transaction(fn () => EscrituraCore::eliminarExtraescolar((int) $id));
         } catch (\Illuminate\Database\QueryException $e) {
             if ($e->getCode() === '23503') {
                 return response()->json([
@@ -211,17 +186,14 @@ class ExtraescolarController extends Controller
     // -------------------------------------------------------
     public function darDeBajaAlumno($idInscripcion)
     {
-        $inscripcion = InscripcionExtraescolar::find((int) $idInscripcion);
+        $inscripcion = DB::query()->fromSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar')
+            ->where('id_inscripcionextra', (int) $idInscripcion)->first();
 
         if (!$inscripcion) {
             return response()->json(['error' => 'Inscripción no encontrada'], 404);
         }
 
-        $inscripcion->status = false;
-        DB::transaction(function () use ($inscripcion) {
-            $inscripcion->save();
-            SincronizadorCore::inscripcionExtra((int) $inscripcion->id_inscripcionextra);
-        });
+        EscrituraCore::darDeBaja((int) $idInscripcion, 'Baja desde administración');
 
         return response()->json(['message' => 'Alumno dado de baja correctamente.']);
     }

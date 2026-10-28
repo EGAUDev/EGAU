@@ -2,11 +2,10 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
-use App\Models\Alumno;
-use App\Models\Academico\Factura;
 use Illuminate\Support\Facades\DB;
+use App\Services\AccesoCore;
+use App\Services\EscrituraCore;
 use App\Services\LecturaCore;
-use App\Services\SincronizadorCore;
 
 class AlumnoController extends Controller
 {
@@ -34,21 +33,21 @@ class AlumnoController extends Controller
         };
     }
 
-    /** Datos del alumno leídos de v2.2 (mismo id y columnas que public.alumno). */
-    private function alumnoV22(int $idAlumno): ?object
+    /** El alumno con sesión abierta, con las columnas de LecturaCore::personas('alumno'). */
+    private function alumnoActual(Request $request): ?object
     {
-        return DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')->where('id_alumno', $idAlumno)->first();
+        $idAlumno = AccesoCore::personaActual('alumno', $request);
+        return $idAlumno ? DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')->where('id_alumno', $idAlumno)->first() : null;
     }
 
     public function inicio(Request $request)
     {
-        $alumno = $request->user();
+        $alumno = $this->alumnoActual($request);
 
-        if (!$alumno instanceof Alumno) {
+        if (!$alumno) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        $alumno = $this->alumnoV22($alumno->id_alumno) ?? $alumno;
         $puntaje = $alumno->puntaje ?? 0;
         $nivel = $this->calcularNivel($puntaje);
         $puntajeSiguiente = $this->puntajeSiguienteNivel($puntaje);
@@ -158,13 +157,12 @@ class AlumnoController extends Controller
 
     public function profesores(Request $request)
     {
-        $alumno = $request->user();
+        $alumno = $this->alumnoActual($request);
 
-        if (!$alumno instanceof Alumno) {
+        if (!$alumno) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        $alumno = $this->alumnoV22($alumno->id_alumno) ?? $alumno;
         $profesores = DB::query()->fromSub(LecturaCore::personas('profesor'), 'profesor')
             ->where('profesor.id_sede', $alumno->id_sede)
             ->where('profesor.estatus', true)
@@ -201,25 +199,14 @@ class AlumnoController extends Controller
 
     public function extraescolares(Request $request)
     {
-        $alumno = $request->user();
+        $alumno = $this->alumnoActual($request);
 
-        if (!$alumno instanceof Alumno) {
+        if (!$alumno) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
         // Auto-expirar facturas vencidas
-        $vencidas = DB::table('factura')
-            ->where('id_alumno', $alumno->id_alumno)
-            ->whereNotNull('id_inscripcionextra')
-            ->where('vigencia', 'enproceso')
-            ->where('fecha_limite', '<', now())
-            ->pluck('id_factura');
-        if ($vencidas->isNotEmpty()) {
-            DB::transaction(function () use ($vencidas) {
-                DB::table('factura')->whereIn('id_factura', $vencidas)->update(['vigencia' => 'expirado']);
-                SincronizadorCore::cargos($vencidas);
-            });
-        }
+        EscrituraCore::vencerCargos((int) $alumno->id_alumno);
 
         $inscritos = DB::query()->fromSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar')
             ->where('id_alumno', $alumno->id_alumno)
@@ -289,14 +276,14 @@ class AlumnoController extends Controller
 
     public function inscribirExtraescolar(Request $request, $id)
     {
-        $alumno = $request->user();
+        $alumno = $this->alumnoActual($request);
 
-        if (!$alumno instanceof Alumno) {
+        if (!$alumno) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        $extra = DB::table('extraescolar')
-            ->where('id_extraescolar', $id)
+        $extra = DB::query()->fromSub(LecturaCore::extraescolares(), 'extraescolar')
+            ->where('id_extraescolar', (int) $id)
             ->where('estatus', true)
             ->first();
 
@@ -308,9 +295,9 @@ class AlumnoController extends Controller
             return response()->json(['message' => 'cupo_lleno'], 409);
         }
 
-        $yaInscrito = DB::table('inscripcionextraescolar')
+        $yaInscrito = DB::query()->fromSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar')
             ->where('id_alumno', $alumno->id_alumno)
-            ->where('id_extraescolar', $id)
+            ->where('id_extraescolar', (int) $id)
             ->where('status', true)
             ->exists();
 
@@ -318,46 +305,33 @@ class AlumnoController extends Controller
             return response()->json(['message' => 'Ya estás inscrito en esta actividad'], 409);
         }
 
-        // DESPUÉS
-        DB::transaction(function () use ($alumno, $extra, $id) {
-            $idInscripcion = DB::table('inscripcionextraescolar')->insertGetId([
-                'id_alumno'        => $alumno->id_alumno,
-                'id_extraescolar'  => $id,
-                'fecha_asignacion' => now(),
-                'status'           => true,
-            ], 'id_inscripcionextra');
-
-            $factura = Factura::create([
-                'id_alumno'           => $alumno->id_alumno,
-                'id_inscripcionextra' => $idInscripcion,
-                'fecha_emision'       => now(),
-                'fecha_limite'        => $extra->fecha_inicio,
-                'total_pago'          => $extra->costo_base,
-                'vigencia'            => 'enproceso',
-                'concepto'            => 'Inscripción a actividad extraescolar: ' . $extra->nombre,
-            ]);
-            SincronizadorCore::inscripcionExtra((int) $idInscripcion);
-            SincronizadorCore::cargo((int) $factura->id_factura);
-
-            DB::table('extraescolar')
-                ->where('id_extraescolar', $id)
-                ->increment('cupo_actual');
-        });
+        try {
+            DB::transaction(function () use ($alumno, $extra) {
+                $idInscripcion = EscrituraCore::inscribir((int) $alumno->id_alumno, (int) $extra->id_grupo);
+                EscrituraCore::cargo(
+                    (int) $alumno->id_alumno, $idInscripcion, 'extraescolar',
+                    'Inscripción a actividad extraescolar: ' . $extra->nombre, null,
+                    (float) $extra->costo_base, (string) $extra->fecha_inicio
+                );
+            });
+        } catch (\App\Services\ErrorDeDatos $e) {
+            return response()->json(['message' => 'cupo_lleno'], 409);
+        }
 
         return response()->json(['message' => 'Inscripción exitosa']);
     }
 
     public function cancelarExtraescolar(Request $request, $id)
     {
-        $alumno = $request->user();
+        $alumno = $this->alumnoActual($request);
 
-        if (!$alumno instanceof Alumno) {
+        if (!$alumno) {
             return response()->json(['message' => 'No autorizado'], 403);
         }
 
-        $inscripcion = DB::table('inscripcionextraescolar')
+        $inscripcion = DB::query()->fromSub(LecturaCore::inscripcionesExtra(), 'inscripcionextraescolar')
             ->where('id_alumno', $alumno->id_alumno)
-            ->where('id_extraescolar', $id)
+            ->where('id_extraescolar', (int) $id)
             ->where('status', true)
             ->first();
 
@@ -365,42 +339,20 @@ class AlumnoController extends Controller
             return response()->json(['message' => 'No estás inscrito en esta actividad'], 404);
         }
 
-        $factura = DB::table('factura')
+        $factura = DB::query()->fromSub(LecturaCore::facturas(), 'factura')
             ->where('id_inscripcionextra', $inscripcion->id_inscripcionextra)
             ->where('id_alumno', $alumno->id_alumno)
             ->first();
 
-        // DESPUÉS
         if ($factura && $factura->vigencia === 'pagado') {
             return response()->json(['message' => 'Tu inscripción ya fue pagada. Para cancelarla comunícate con la sede.'], 409);
         }
 
-        DB::transaction(function () use ($factura, $alumno, $id) {
+        DB::transaction(function () use ($factura, $inscripcion) {
             if ($factura) {
-                DB::table('factura')
-                    ->where('id_factura', $factura->id_factura)
-                    ->update(['vigencia' => 'cancelado']);
-                SincronizadorCore::cargo((int) $factura->id_factura);
+                EscrituraCore::cancelarCargo((int) $factura->id_factura, 'Inscripción cancelada por el alumno');
             }
-
-            $activas = DB::table('inscripcionextraescolar')
-                ->where('id_alumno', $alumno->id_alumno)
-                ->where('id_extraescolar', $id)
-                ->where('status', true)
-                ->pluck('id_inscripcionextra');
-
-            DB::table('inscripcionextraescolar')
-                ->where('id_alumno', $alumno->id_alumno)
-                ->where('id_extraescolar', $id)
-                ->update(['status' => false]);
-
-            foreach ($activas as $idInscripcion) {
-                SincronizadorCore::inscripcionExtra((int) $idInscripcion);
-            }
-
-            DB::table('extraescolar')
-                ->where('id_extraescolar', $id)
-                ->decrement('cupo_actual');
+            EscrituraCore::darDeBaja((int) $inscripcion->id_inscripcionextra, 'Cancelada por el alumno');
         });
 
         return response()->json(['message' => 'Inscripción cancelada']);

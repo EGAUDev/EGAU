@@ -10,14 +10,12 @@ use App\Http\Controllers\AlumnoProfileController;
 use App\Http\Middleware\VerificarToken;
 use App\Services\AccesoCore;
 use App\Services\LecturaCore;
-use App\Services\SincronizadorCore;
+use App\Services\EscrituraCore;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\PersonalAccessToken;
-use App\Models\Alumno;
-use App\Models\Profesor;
-use App\Models\Personal;
+use App\Models\Core\Usuario;
 
 Route::get('/', function () {
     return view('website.landing');
@@ -64,11 +62,11 @@ Route::post('/guardar-token', function (Request $request) {
     $token = (string) $request->input('token');
     $acceso = PersonalAccessToken::findToken($token);
 
-    if (!$acceso || ($acceso->expires_at && $acceso->expires_at->isPast()) || !$acceso->tokenable) {
+    if (!$acceso || ($acceso->expires_at && $acceso->expires_at->isPast()) || !($acceso->tokenable instanceof Usuario)) {
         return response()->json(['ok' => false, 'message' => 'Token inválido'], 401);
     }
 
-    $cuenta = AccesoCore::desdeModeloLegacy($acceso->tokenable);
+    $cuenta = AccesoCore::desdeToken($acceso->tokenable, $acceso->name);
     if (!$cuenta || $cuenta->estado !== 'activo' || $cuenta->estado_perfil !== 'activo') {
         return response()->json(['ok' => false, 'message' => 'Cuenta inactiva'], 401);
     }
@@ -80,10 +78,11 @@ Route::post('/guardar-token', function (Request $request) {
         'token'         => $token,
         'tipo'          => $cuenta->tipo,
         'id_usuario'    => $cuenta->id_usuario,
+        'id_persona'    => $cuenta->id_persona,
         'id_sede'       => $contexto['id_sede'],
         'administrativo'=> $contexto['administrativo'],
         'permisos'      => $contexto['permisos'],
-        'id_profesor'   => $cuenta->tipo === 'profesor' ? $acceso->tokenable->getKey() : null,
+        'id_profesor'   => $cuenta->tipo === 'profesor' ? $cuenta->id_persona : null,
     ]);
     return response()->json(['ok' => true]);
 })->name('guardar.token');
@@ -223,26 +222,13 @@ Route::middleware(VerificarToken::class)->group(function () {
     Route::put('/profesor/perfil', function (Request $request) {
         $idProfesor = session('id_profesor');
         if (!$idProfesor) return response()->json(['error' => 'No autorizado'], 401);
-        if ($request->filled('email') && SincronizadorCore::correoOcupado($request->email, 'profesor', (int) $idProfesor)) {
+        if ($request->filled('email') && EscrituraCore::correoOcupado($request->email, (int) $idProfesor)) {
             return response()->json(['errors' => ['email' => ['Ese correo ya tiene una cuenta en el sistema.']]], 422);
         }
-        DB::transaction(function () use ($request, $idProfesor) {
-            DB::table('profesor')->where('id_profesor', $idProfesor)->update([
-                'nombre'            => $request->nombre,
-                'apellido_p'        => $request->apellido_p,
-                'apellido_m'        => $request->apellido_m,
-                'telefono'          => $request->telefono,
-                'email'             => $request->email,
-                'fecha_nacimiento'  => $request->fecha_nacimiento,
-                'genero'            => $request->genero,
-                'estado_residencia' => $request->estado_residencia,
-                'ciudad'            => $request->ciudad,
-                'calle'             => $request->calle,
-                'codigo_postal'     => $request->codigo_postal,
-                'fecha_modificacion'=> now(),
-            ]);
-            SincronizadorCore::persona('profesor', (int) $idProfesor);
-        });
+        DB::transaction(fn () => EscrituraCore::persona('profesor', (int) $idProfesor, $request->only([
+            'nombre', 'apellido_p', 'apellido_m', 'telefono', 'email', 'fecha_nacimiento', 'genero',
+            'estado_residencia', 'ciudad', 'calle', 'codigo_postal',
+        ])));
         return response()->json(['message' => 'Perfil actualizado correctamente.']);
     });
 
@@ -252,11 +238,7 @@ Route::middleware(VerificarToken::class)->group(function () {
         $nueva = $request->contrasena_nueva;
         if (!$nueva || strlen($nueva) < 6)
             return response()->json(['error' => 'Mínimo 6 caracteres.'], 422);
-        DB::transaction(function () use ($idProfesor, $nueva) {
-            DB::table('profesor')->where('id_profesor', $idProfesor)
-                ->update(['contraseña' => \Illuminate\Support\Facades\Hash::make($nueva)]);
-            SincronizadorCore::persona('profesor', (int) $idProfesor, true);
-        });
+        EscrituraCore::password((int) $idProfesor, $nueva);
         return response()->json(['message' => 'Contraseña actualizada correctamente.']);
     });
 
