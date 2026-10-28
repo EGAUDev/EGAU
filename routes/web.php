@@ -113,13 +113,16 @@ Route::middleware(VerificarToken::class)->group(function () {
             ->get();
         $sedes = DB::query()->fromSub(LecturaCore::sedes(), 'sede')->orderBy('id_sede')->get(['id_sede', 'nombre']);
         $roles = DB::query()->fromSub(LecturaCore::roles(), 'rol')->orderBy('id_rol')->get(['id_rol', 'nombre']);
+        $periodos = DB::table('academico.periodo')
+            ->selectRaw('clave, nombre, lower(vigencia) AS desde, upper(vigencia) AS hasta')
+            ->orderByRaw('lower(vigencia)')->get();
         $token = session('token');
         $permisosData = session('permisos');
         $permisos = $permisosData ? (object) array_map(fn($v) => filter_var($v, FILTER_VALIDATE_BOOLEAN), $permisosData) : (object)[];
         $administrativo = filter_var(session('administrativo', false), FILTER_VALIDATE_BOOLEAN);
         $tipo = session('tipo', 'personal');
         $idProfesor = session('id_profesor');
-        return view('dashboardAdmin', compact('alumnos', 'profesores', 'personal', 'sedes', 'roles', 'permisos', 'administrativo', 'tipo', 'idProfesor'));
+        return view('dashboardAdmin', compact('alumnos', 'profesores', 'personal', 'sedes', 'roles', 'periodos', 'permisos', 'administrativo', 'tipo', 'idProfesor'));
     })->name('dashboard.admin');
 
     Route::get('/dashboardAlumno', function () {

@@ -380,8 +380,18 @@
                             </div>
                             <div class="form-group-modal">
                                 <label for="gr-periodo">Periodo</label>
-                                <input type="text" id="gr-periodo" name="periodo" placeholder="Ej. 2026-A"
-                                    maxlength="10">
+                                <div class="form-dropdown" id="dropdown-gr-periodo" tabindex="0">
+                                    <div class="form-select-trigger" id="trigger-gr-periodo">
+                                        <span class="selected-text" data-value="">Selecciona un periodo...</span>
+                                        <i class="ri-arrow-down-s-line"></i>
+                                    </div>
+                                    <div class="form-options-container" style="z-index:99;">
+                                        @foreach($periodos as $p)
+                                        <div class="form-option" data-value="{{ $p->clave }}" data-desde="{{ $p->desde }}" data-hasta="{{ $p->hasta }}">{{ $p->nombre }}</div>
+                                        @endforeach
+                                    </div>
+                                    <input type="hidden" id="gr-periodo" name="periodo" value="">
+                                </div>
                             </div>
 
                             <div class="form-group-modal">

@@ -11,6 +11,7 @@ use App\Services\SincronizadorCore;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\Rule;
 
 class AdminController extends Controller
 {
@@ -714,18 +715,33 @@ class AdminController extends Controller
         return response()->json(['data' => $result]);
     }
 
+    /** La fecha de inicio del grupo tiene que caer dentro del periodo elegido. */
+    private static function revisarPeriodo($validator, Request $request): void
+    {
+        if (!$request->filled('periodo') || !$request->filled('fecha_inicio') || $validator->errors()->isNotEmpty()) {
+            return;
+        }
+        $cuadra = DB::table('academico.periodo')->where('clave', $request->periodo)
+            ->whereRaw('vigencia @> ?::date', [$request->fecha_inicio])->exists();
+        if (!$cuadra) {
+            $validator->errors()->add('periodo', 'La fecha de inicio no cae dentro del periodo ' . $request->periodo . '.');
+        }
+    }
+
     public function registrarGrupo(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'id_curso'     => 'required|integer',
             'id_profesor'  => 'required|integer',
             'codigo_grupo' => 'required|string|max:20',
-            'periodo' => 'nullable|string|max:20',
+            'nombre'       => 'nullable|string|max:100',
+            'periodo'      => ['nullable', 'string', Rule::in(DB::table('academico.periodo')->pluck('clave'))],
             'fecha_inicio' => 'required|date',
             'fecha_fin'    => 'required|date|after:fecha_inicio',
             'cupo_maximo'  => 'required|integer|min:1',
             'horarios'     => 'required|array|min:1',
-        ]);
+        ], ['periodo.in' => 'Elige uno de los periodos de la lista.']);
+        $validator->after(fn ($v) => self::revisarPeriodo($v, $request));
         if ($validator->fails())
             return response()->json(['errors' => $validator->errors()], 422);
 
@@ -816,12 +832,14 @@ class AdminController extends Controller
             'id_curso'     => 'required|integer',
             'id_profesor'  => 'required|integer',
             'codigo_grupo' => 'required|string|max:20',
-            'periodo' => 'nullable|string|max:20',
+            'nombre'       => 'nullable|string|max:100',
+            'periodo'      => ['nullable', 'string', Rule::in(DB::table('academico.periodo')->pluck('clave'))],
             'fecha_inicio' => 'required|date',
             'fecha_fin'    => 'required|date|after:fecha_inicio',
             'cupo_maximo'  => 'required|integer|min:1',
             'horarios'     => 'required|array|min:1',
-        ]);
+        ], ['periodo.in' => 'Elige uno de los periodos de la lista.']);
+        $validator->after(fn ($v) => self::revisarPeriodo($v, $request));
         if ($validator->fails())
             return response()->json(['errors' => $validator->errors()], 422);
 
@@ -977,14 +995,15 @@ $alumnos = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
         $validator = Validator::make($request->all(), [
             'nombre'  => 'required|string|max:50',
             'id_sede' => 'required|integer',
-        ]);
+            'nivel'   => ['nullable', 'integer', Rule::in(DB::table('academico.nivel')->pluck('rating_minimo'))],
+        ], ['nivel.in' => 'Elige uno de los niveles de la lista.']);
         if ($validator->fails())
             return response()->json(['errors' => $validator->errors()], 422);
 
         $curso = new \App\Models\Academico\Curso();
         $curso->nombre           = $request->nombre;
         $curso->id_sede          = $request->id_sede;
-        $curso->nivel            = $request->input('nivel', '');
+        $curso->nivel            = $request->filled('nivel') ? (int) $request->nivel : null;
         $curso->duracion_semanas = (int) $request->input('duracion_semanas', 0);
         $curso->horas_totales    = (int) $request->input('horas_totales', 0);
         $curso->costo_base       = $request->input('costo_base');
@@ -1020,13 +1039,16 @@ $alumnos = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
         $validator = Validator::make($request->all(), [
             'nombre'  => 'required|string|max:50',
             'id_sede' => 'required|integer',
-        ]);
+            'nivel'   => ['nullable', 'integer', Rule::in(DB::table('academico.nivel')->pluck('rating_minimo'))],
+        ], ['nivel.in' => 'Elige uno de los niveles de la lista.']);
         if ($validator->fails())
             return response()->json(['errors' => $validator->errors()], 422);
 
         $curso->nombre           = $request->nombre;
         $curso->id_sede          = $request->id_sede;
-        $curso->nivel            = $request->input('nivel', $curso->nivel);
+        if ($request->has('nivel')) {
+            $curso->nivel        = $request->filled('nivel') ? (int) $request->nivel : null;
+        }
         $curso->duracion_semanas = $request->input('duracion_semanas') ?? $curso->duracion_semanas;
         $curso->horas_totales    = $request->input('horas_totales')    ?? $curso->horas_totales;
         $curso->costo_base       = $request->input('costo_base')       ?? $curso->costo_base;

@@ -128,7 +128,7 @@ class AlumnoGruposController extends Controller
             return response()->json(['message' => 'Grupo no encontrado'], 404);
 
         if ($accion === 'inscribir') {
-            $curso = DB::table('curso')->where('id_curso', $grupo->id_curso)->first();
+            $curso = DB::query()->fromSub(LecturaCore::cursos(), 'curso')->where('id_curso', $grupo->id_curso)->first();
             if (!$curso) {
                 return response()->json(['message' => 'Curso no válido.'], 400);
             }

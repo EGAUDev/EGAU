@@ -15,7 +15,7 @@ class RolController extends Controller
     // ID del rol super-administrador (nunca editable ni visible en listado)
     private function getSuperAdminId(): int
     {
-        $superAdmin = DB::table('rol')->where('administrativo', true)->orderBy('id_rol')->first();
+        $superAdmin = DB::query()->fromSub(LecturaCore::roles(), 'rol')->where('administrativo', true)->orderBy('id_rol')->first();
         return $superAdmin ? (int) $superAdmin->id_rol : 1;
     }
 

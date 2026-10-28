@@ -12,9 +12,7 @@ use Illuminate\Support\Facades\DB;
  * migracion.mapa), para usarse como tabla: DB::query()->fromSub(LecturaCore::sedes(), 'sede').
  * Así las pantallas, el JavaScript y los métodos que guardan no cambian.
  *
- * Lo que v2.2 no tiene se sigue tomando de v1: nombre del grupo, ubicación de
- * la extraescolar, puntaje exacto que pide un curso, texto del periodo y si un
- * rol es administrativo.
+ * Solo el id_permiso del rol se sigue tomando de v1 (lo usa la pantalla de roles al guardar).
  */
 class LecturaCore
 {
@@ -47,7 +45,7 @@ class LecturaCore
 
     /**
      * Roles con sus permisos como banderas (antes rol JOIN permiso). Las banderas
-     * salen de core.rol_permiso; "administrativo" e id_permiso siguen en v1.
+     * salen de core.rol_permiso; "administrativo" es core.rol.global. id_permiso sigue en v1.
      */
     public static function roles(): Builder
     {
@@ -55,7 +53,8 @@ class LecturaCore
             ->join('migracion.mapa as m', fn ($j) => $j->on('m.id_nuevo', '=', 'r.id')->where('m.tabla_origen', 'rol'))
             ->join('public.rol as v1', 'v1.id_rol', '=', 'm.id_origen')
             ->selectRaw('m.id_origen AS id_rol, v1.id_permiso, r.nombre, r.descripcion, r.activo AS estatus,
-                         v1.fecha_registro, v1.fecha_modificacion, v1.administrativo');
+                         r.creado_en::timestamp(0) AS fecha_registro, r.actualizado_en::timestamp(0) AS fecha_modificacion,
+                         r.global AS administrativo');
         foreach (self::BANDERAS as $bandera => $clave) {
             $q->selectRaw("EXISTS (SELECT 1 FROM core.rol_permiso rp JOIN core.permiso p ON p.id = rp.id_permiso
                                     WHERE rp.id_rol = r.id AND p.clave = ?) AS {$bandera}", [$clave]);
@@ -102,31 +101,31 @@ class LecturaCore
             ->selectRaw('m.id_origen AS id_personal, ' . self::idLegacy('sede', 'ps.id_sede') . ' AS id_sede, ps.asignado_en AS fecha_asignacion');
     }
 
-    /** Cursos regulares (las extraescolares son cursos aparte). El puntaje que pide el curso sigue en v1. */
+    /** Cursos regulares (las extraescolares son cursos aparte). "nivel" es el puntaje mínimo del nivel que pide. */
     public static function cursos(): Builder
     {
         return DB::table('academico.curso as c')
             ->join('migracion.mapa as m', fn ($j) => $j->on('m.id_nuevo', '=', 'c.id')->where('m.tabla_origen', 'curso'))
-            ->leftJoin('public.curso as v1', 'v1.id_curso', '=', 'm.id_origen')
+            ->leftJoin('academico.nivel as n', 'n.id', '=', 'c.id_nivel_minimo')
             ->selectRaw("m.id_origen AS id_curso,
                          (SELECT ms.id_origen FROM academico.curso_sede cs
                             JOIN migracion.mapa ms ON ms.tabla_origen = 'sede' AND ms.id_nuevo = cs.id_sede
                            WHERE cs.id_curso = c.id ORDER BY cs.id_sede LIMIT 1) AS id_sede,
-                         c.nombre, v1.nivel, c.duracion_semanas, c.horas_totales, c.costo_base, c.activo AS estatus,
+                         c.nombre, n.rating_minimo AS nivel, c.duracion_semanas, c.horas_totales, c.costo_base, c.activo AS estatus,
                          c.descripcion, c.requisitos");
     }
 
-    /** Grupos con su cupo ocupado calculado. El nombre y el texto del periodo siguen en v1. */
+    /** Grupos con su cupo ocupado calculado; el periodo es la clave de academico.periodo. */
     public static function grupos(): Builder
     {
         return DB::table('academico.grupo as g')
             ->join('migracion.mapa as m', fn ($j) => $j->on('m.id_nuevo', '=', 'g.id')->where('m.tabla_origen', 'grupo'))
-            ->leftJoin('public.grupo as v1', 'v1.id_grupo', '=', 'm.id_origen')
+            ->join('academico.periodo as p', 'p.id', '=', 'g.id_periodo')
             ->join('academico.v_grupo_cupo as vc', 'vc.id_grupo', '=', 'g.id')
             ->selectRaw('m.id_origen AS id_grupo, ' . self::idLegacy('curso', 'g.id_curso') . ' AS id_curso, '
                 . self::idLegacy('profesor', 'g.id_profesor') . " AS id_profesor,
-                         g.codigo AS codigo_grupo, v1.periodo, g.fecha_inicio, g.fecha_fin, g.cupo_maximo,
-                         g.estado IN ('planeado', 'abierto', 'en_curso') AS estatus, vc.inscritos AS cupo_actual, v1.nombre");
+                         g.codigo AS codigo_grupo, p.clave AS periodo, g.fecha_inicio, g.fecha_fin, g.cupo_maximo,
+                         g.estado IN ('planeado', 'abierto', 'en_curso') AS estatus, vc.inscritos AS cupo_actual, g.nombre");
     }
 
     /** Horarios de los grupos; la ubicación es el aula. */
@@ -150,7 +149,7 @@ class LecturaCore
                          i.estado IN ('activa', 'lista_espera') AS estatus");
     }
 
-    /** Extraescolares: curso tipo extraescolar + su único grupo. La ubicación sigue en v1. */
+    /** Extraescolares: curso tipo extraescolar + su único grupo (ahí va la ubicación). */
     public static function extraescolares(): Builder
     {
         return DB::table('academico.curso as c')
@@ -158,9 +157,8 @@ class LecturaCore
             ->join('migracion.mapa as mg', fn ($j) => $j->on('mg.id_origen', '=', 'm.id_origen')->where('mg.tabla_origen', 'extraescolar_grupo'))
             ->join('academico.grupo as g', 'g.id', '=', 'mg.id_nuevo')
             ->join('academico.v_grupo_cupo as vc', 'vc.id_grupo', '=', 'g.id')
-            ->leftJoin('public.extraescolar as v1', 'v1.id_extraescolar', '=', 'm.id_origen')
             ->selectRaw("m.id_origen AS id_extraescolar, c.nombre, g.cupo_maximo, c.duracion_semanas, c.costo_base,
-                         g.fecha_inicio, g.fecha_fin, c.activo AS estatus, v1.ubicacion, c.descripcion, c.requisitos,
+                         g.fecha_inicio, g.fecha_fin, c.activo AS estatus, g.ubicacion, c.descripcion, c.requisitos,
                          vc.inscritos AS cupo_actual");
     }
 

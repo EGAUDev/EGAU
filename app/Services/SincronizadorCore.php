@@ -94,6 +94,7 @@ class SincronizadorCore
             'nombre'      => mb_substr(self::texto($jr['nombre'] ?? null) ?? 'Rol ' . $idRol, 0, 80),
             'descripcion' => $jr['descripcion'] ?? null,
             'activo'      => self::activo($jr['estatus'] ?? null),
+            'global'      => $administrativo,
         ];
 
         $idCore = self::mapa('rol', $idRol);
@@ -399,7 +400,7 @@ class SincronizadorCore
 
         $deseadas = [];
         if ($idRolCore) {
-            if ((bool) ((array) $rol)['administrativo']) {
+            if (DB::table('core.rol')->where('id', $idRolCore)->value('global')) {
                 $deseadas[] = null;
             } else {
                 $sedes = DB::table('usuariosede')->where('id_personal', $idPersonal)->pluck('id_sede')
@@ -651,8 +652,9 @@ class SincronizadorCore
             'id_sede'      => $idSede,
             'id_curso'     => $idCurso,
             'id_profesor'  => $idProfesor,
-            'id_periodo'   => self::periodo($inicio),
+            'id_periodo'   => self::periodo($inicio, $g->periodo),
             'codigo'       => $codigo,
+            'nombre'       => self::corto($g->nombre, 100),
             'fecha_inicio' => $inicio,
             'fecha_fin'    => $fin,
             'cupo_maximo'  => max(1, min(32767, (int) $g->cupo_maximo)),
@@ -789,6 +791,7 @@ class SincronizadorCore
             'id_periodo'   => self::periodo($inicio),
             'fecha_inicio' => $inicio,
             'fecha_fin'    => $fin,
+            'ubicacion'    => self::corto($e->ubicacion, 100),
             'cupo_maximo'  => max(1, min(32767, (int) $e->cupo_maximo)),
             'estado'       => self::activo($e->estatus) ? 'abierto' : 'cerrado',
         ];
@@ -920,9 +923,17 @@ class SincronizadorCore
         return $id !== null ? (int) $id : null;
     }
 
-    /** Periodo = año de inicio del grupo (v2.2 no permite periodos traslapados y v1 los escribe a mano). */
-    private static function periodo(string $fechaInicio): int
+    /**
+     * El periodo elegido en la pantalla (su clave); si no hay, el año de inicio
+     * del grupo (v2.2 no permite periodos traslapados).
+     */
+    private static function periodo(string $fechaInicio, ?string $clave = null): int
     {
+        $id = $clave !== null && trim($clave) !== ''
+            ? DB::table('academico.periodo')->where('clave', trim($clave))->value('id') : null;
+        if ($id) {
+            return (int) $id;
+        }
         $anio = (int) substr($fechaInicio, 0, 4);
         $id = DB::table('academico.periodo')->where('clave', (string) $anio)->value('id');
         if ($id) {

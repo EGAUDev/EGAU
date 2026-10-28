@@ -83,6 +83,28 @@ document.addEventListener('DOMContentLoaded', () => {
         4: 'Jueves', 5: 'Viernes', 6: 'Sábado', 7: 'Domingo'
     };
 
+    // Marca la opción con ese valor en un dropdown (o lo deja vacío si no existe)
+    function elegirOpcion(idDropdown, valor, textoVacio) {
+        const dropdown = document.getElementById(idDropdown);
+        if (!dropdown) return;
+        const opciones = dropdown.querySelectorAll('.form-option');
+        const opcion = [...opciones].find(o => valor !== null && valor !== undefined && valor !== '' && o.getAttribute('data-value') === String(valor));
+        opciones.forEach(o => o.classList.toggle('selected', o === opcion));
+        dropdown.querySelector('input[type="hidden"]').value = opcion ? opcion.getAttribute('data-value') : '';
+        dropdown.querySelector('.selected-text').textContent = opcion ? opcion.textContent : textoVacio;
+    }
+
+    // Al poner la fecha de inicio se elige solo el periodo que la contiene
+    const inputInicioGrupo = document.getElementById('gr-fecha-inicio');
+    if (inputInicioGrupo) {
+        inputInicioGrupo.addEventListener('change', () => {
+            const fecha = inputInicioGrupo.value;
+            const opcion = [...document.querySelectorAll('#dropdown-gr-periodo .form-option')]
+                .find(o => fecha >= o.getAttribute('data-desde') && fecha < o.getAttribute('data-hasta'));
+            if (opcion) elegirOpcion('dropdown-gr-periodo', opcion.getAttribute('data-value'), 'Selecciona un periodo...');
+        });
+    }
+
     function getNivelLabel(nivel) {
         const n = parseInt(nivel) || 0;
         if (n === 0) return { label: 'Básico', color: 'verde' };
@@ -327,8 +349,8 @@ document.addEventListener('DOMContentLoaded', () => {
             if (triggerProf) triggerProf.textContent = data.nombre_profesor;
 
             document.querySelector('[name="codigo_grupo"]').value = data.codigo_grupo;
-            document.querySelector('[name="nombre"]').value = data.nombre;
-            document.querySelector('[name="periodo"]').value = data.periodo;
+            document.querySelector('[name="nombre"]').value = data.nombre || '';
+            elegirOpcion('dropdown-gr-periodo', data.periodo, 'Selecciona un periodo...');
             document.querySelector('[name="fecha_inicio"]').value = data.fecha_inicio;
             document.querySelector('[name="fecha_fin"]').value = data.fecha_fin;
             document.querySelector('[name="cupo_maximo"]').value = data.cupo_maximo;
@@ -367,6 +389,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (triggerProf) triggerProf.textContent = 'Asignar un profesor...';
             document.getElementById('gr-curso').value = '';
             document.getElementById('gr-instructor').value = '';
+            elegirOpcion('dropdown-gr-periodo', '', 'Selecciona un periodo...');
 
             // Limpiar horarios
             const horariosList = document.getElementById('horarios-list');
@@ -591,9 +614,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const triggerS = document.querySelector('#trigger-cu-sede .selected-text');
             if (triggerS) triggerS.textContent = data.nombre_sede || 'Sede asignada';
 
-            document.getElementById('cu-nivel').value = data.nivel || '';
-            const triggerN = document.querySelector('#trigger-cu-nivel .selected-text');
-            if (triggerN) triggerN.textContent = data.nivel || 'Nivel asignado';
+            elegirOpcion('dropdown-cu-nivel', data.nivel, 'Selecciona un nivel...');
 
             document.getElementById('cu-estatus').value = data.estatus ? '1' : '0';
             const triggerE = document.querySelector('#trigger-cu-estatus .selected-text');
