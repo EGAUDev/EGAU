@@ -4,23 +4,67 @@
 //  Historial y Gestión de material (SCRUM-18)
 //  EGAU Chess | AMAAC
 //
-//  Visible para todo el personal, sin depender de permisos.
-//  Por ahora usa los datos de prueba de
-//  dashboardAdminBibliotecaDatos.js; "Mis guardados" e
-//  "Historial" se guardan en localStorage.
+//  Lee y guarda con la API /api/biblioteca (SCRUM-27).
+//  Permisos (SCRUM-46): ver, editar y eliminar vienen en
+//  window.PERMISOS_BIBLIOTECA. "Mis guardados" e "Historial"
+//  del personal se recuerdan en este navegador.
 // ==============================================
 
 document.addEventListener('DOMContentLoaded', () => {
 
     const seccion = document.getElementById('section-biblioteca');
-    if (!seccion || !window.BIBLIOTECA_DATOS) return;
+    if (!seccion) return;
 
-    const { NIVELES, TIPOS, PORTADAS, partidas, guardadosIniciales, historialInicial } = window.BIBLIOTECA_DATOS;
-    let documentos = window.BIBLIOTECA_DATOS.documentos.map(d => ({ ...d }));
+    const PERMISOS = window.PERMISOS_BIBLIOTECA || { ver: true, edit: false, eliminar: false };
+    const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const API = '/api/biblioteca';
 
-    const PAGE_SIZE = 6;
-    const LS_GUARDADOS = 'egau_bib_guardados';
-    const LS_HISTORIAL = 'egau_bib_historial';
+    // Mismos nombres que academico.nivel (Dama se muestra como Reina)
+    const NIVELES = [
+        { nombre: 'Peón',    icono: '♟', puntos: 0,    clase: 'bib-nivel-peon' },
+        { nombre: 'Caballo', icono: '♞', puntos: 150,  clase: 'bib-nivel-caballo' },
+        { nombre: 'Alfil',   icono: '♝', puntos: 400,  clase: 'bib-nivel-alfil' },
+        { nombre: 'Torre',   icono: '♜', puntos: 800,  clase: 'bib-nivel-torre' },
+        { nombre: 'Reina',   icono: '♛', puntos: 1500, clase: 'bib-nivel-reina' },
+        { nombre: 'Rey',     icono: '♚', puntos: 3000, clase: 'bib-nivel-rey' },
+    ];
+    const SIN_NIVEL = { nombre: 'Todos', icono: '♙', puntos: 0, clase: 'bib-nivel-peon' };
+    const TIPOS = [
+        { nombre: 'Libro',     icono: 'ri-book-open-line', clase: 'bib-tipo-libro' },
+        { nombre: 'Partida',   icono: 'ri-sword-line',     clase: 'bib-tipo-partida' },
+        { nombre: 'Apertura',  icono: 'ri-git-branch-line', clase: 'bib-tipo-partida' },
+        { nombre: 'Video',     icono: 'ri-video-line',     clase: 'bib-tipo-video' },
+        { nombre: 'Ejercicio', icono: 'ri-file-text-line', clase: 'bib-tipo-ejercicio' },
+    ];
+
+    const PAGE_SIZE = 12;
+    const LS_GUARDADOS = 'egau_bib_guardados_v2';
+    const LS_HISTORIAL = 'egau_bib_historial_v2';
+
+    // ── API ─────────────────────────────────────────
+    const controladores = {};
+    async function api(ruta, { metodo = 'GET', datos = null, params = null, clave = null } = {}) {
+        if (clave) { controladores[clave]?.abort(); controladores[clave] = new AbortController(); }
+        const url = API + ruta + (params ? '?' + new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v != null)) : '');
+        const opciones = { method: metodo, credentials: 'same-origin', headers: { Accept: 'application/json', 'X-CSRF-TOKEN': CSRF },
+            signal: clave ? controladores[clave].signal : undefined };
+        if (datos instanceof FormData) opciones.body = datos;
+        else if (datos) { opciones.body = JSON.stringify(datos); opciones.headers['Content-Type'] = 'application/json'; }
+        const r = await fetch(url, opciones);
+        const json = await r.json().catch(() => ({}));
+        if (!r.ok) {
+            const err = new Error(json.error || (json.errors ? Object.values(json.errors)[0][0] : `Error ${r.status}`));
+            err.status = r.status; err.json = json;
+            throw err;
+        }
+        return json;
+    }
+    const ignorarAbort = (e) => { if (e.name !== 'AbortError') { console.error(e); alerta(e.message, 'error'); } };
+    const debounce = (fn, ms = 350) => { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; };
+
+    // Guardados e historial del personal: se recuerdan en este navegador (el alumno los tiene en la base)
+    const cache = new Map();   // id -> documento ya cargado
+    const recordar = (docs) => docs.forEach(d => cache.set(d.id, d));
 
     const $ = (sel) => seccion.querySelector(sel);
     const $$ = (sel) => seccion.querySelectorAll(sel);
@@ -30,12 +74,13 @@ document.addEventListener('DOMContentLoaded', () => {
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     })[c]);
 
-    const nivelInfo = (n) => NIVELES.find(x => x.nombre === n) || NIVELES[0];
+    const nivelInfo = (n) => NIVELES.find(x => x.nombre === n) || SIN_NIVEL;
     const tipoInfo = (t) => TIPOS.find(x => x.nombre === t) || TIPOS[0];
 
-    const fechaLarga = (f) => new Date(f + 'T00:00:00').toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
-    const fechaCorta = (f) => new Date(f + 'T00:00:00').toLocaleDateString('es-MX');
-    const fechaMedia = (f) => new Date(f + 'T00:00:00').toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
+    const fechaOk = (f) => f && !isNaN(new Date(String(f).slice(0, 10) + 'T00:00:00'));
+    const fechaLarga = (f) => !fechaOk(f) ? '—' : new Date(String(f).slice(0, 10) + 'T00:00:00').toLocaleDateString('es-MX', { year: 'numeric', month: 'long', day: 'numeric' });
+    const fechaCorta = (f) => !fechaOk(f) ? '—' : new Date(String(f).slice(0, 10) + 'T00:00:00').toLocaleDateString('es-MX');
+    const fechaMedia = (f) => !fechaOk(f) ? '—' : new Date(String(f).slice(0, 10) + 'T00:00:00').toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
 
     const badgeNivel = (n) => {
         const ni = nivelInfo(n);
@@ -57,8 +102,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (window.egauAlert) window.egauAlert(msg, tipo);
     };
 
-    let guardados = leerLS(LS_GUARDADOS, guardadosIniciales);
-    let historial = leerLS(LS_HISTORIAL, historialInicial);
+    let guardados = leerLS(LS_GUARDADOS, []);    // [documento resumido]
+    let historial = leerLS(LS_HISTORIAL, []);    // [{ doc, fechaConsulta }]
+    const resumen = (d) => ({ id: d.id, titulo: d.titulo, creador: d.creador, nivel: d.nivel, tipo: d.tipo, formato: d.formato, portada: d.portada });
 
     // ── Navegación interna (pestañas y vistas) ─────
     // Vistas: catalogo, documento, partidas, visor, guardados, historial, gestion
@@ -112,11 +158,9 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const opcionesNivel = NIVELES.map(n => ({ valor: n.nombre, texto: `${n.icono} ${n.nombre}` }));
     const opcionesTipo = TIPOS.map(t => ({ valor: t.nombre, texto: t.nombre }));
-    const anios = [...new Set(documentos.map(d => d.fecha.slice(0, 4)))].sort();
-
+    api('/filtros').then(r => llenarSelect($('#bib-filtro-anio'), r.anios.map(a => ({ valor: a, texto: a })))).catch(ignorarAbort);
     llenarSelect($('#bib-filtro-nivel'), opcionesNivel);
     llenarSelect($('#bib-filtro-tipo'), opcionesTipo);
-    llenarSelect($('#bib-filtro-anio'), anios.map(a => ({ valor: a, texto: a })));
     llenarSelect($('#bib-partidas-nivel'), opcionesNivel);
     llenarSelect(document.getElementById('bib-form-tipo'), opcionesTipo);
     llenarSelect(document.getElementById('bib-form-nivel'), opcionesNivel);
@@ -146,39 +190,32 @@ document.addEventListener('DOMContentLoaded', () => {
         </a>`;
     }
 
-    function renderCatalogo() {
-        const q = $('#bib-buscar').value.trim().toLowerCase();
-        const nivel = $('#bib-filtro-nivel').value;
+    function paginador(cont, meta) {
+        const total = meta?.pages || 1, actual = meta?.page || 1;
+        if (total <= 1) { cont.innerHTML = ''; return; }
+        const nums = [];
+        for (let p = 1; p <= total; p++) if (p === 1 || p === total || Math.abs(p - actual) <= 2) nums.push(p); else if (nums[nums.length - 1] !== '…') nums.push('…');
+        cont.innerHTML = `<button class="bib-btn-outline bib-btn-sm" data-pag="${actual - 1}" ${actual === 1 ? 'disabled' : ''}>Anterior</button>`
+            + nums.map(p => p === '…' ? '<span class="bib-texto-suave">…</span>'
+                : `<button class="bib-btn-sm ${p === actual ? 'bib-btn-activo' : 'bib-btn-outline'}" data-pag="${p}">${p}</button>`).join('')
+            + `<button class="bib-btn-outline bib-btn-sm" data-pag="${actual + 1}" ${actual === total ? 'disabled' : ''}>Siguiente</button>`;
+    }
+
+    // Catálogo: libros, videos, ejercicios y partidas publicados. Las aperturas ECO están en "Partidas".
+    async function renderCatalogo() {
         const tipo = $('#bib-filtro-tipo').value;
-        const anio = $('#bib-filtro-anio').value;
-
-        const filtrados = documentos.filter(d =>
-            d.estatus === 'Activo' &&
-            (!q || d.titulo.toLowerCase().includes(q) || d.creador.toLowerCase().includes(q) || d.tema.toLowerCase().includes(q)) &&
-            (!nivel || d.nivel === nivel) &&
-            (!tipo || d.tipo === tipo) &&
-            (!anio || d.fecha.startsWith(anio))
-        );
-
-        const totalPaginas = Math.max(1, Math.ceil(filtrados.length / PAGE_SIZE));
-        if (pagina > totalPaginas) pagina = totalPaginas;
-        const visibles = filtrados.slice((pagina - 1) * PAGE_SIZE, pagina * PAGE_SIZE);
-
-        const n = filtrados.length;
-        $('#bib-conteo').textContent = `${n} documento${n !== 1 ? 's' : ''} encontrado${n !== 1 ? 's' : ''}`;
-
-        $('#bib-grid').innerHTML = visibles.length
-            ? visibles.map(tarjetaDocumento).join('')
-            : `<div class="bib-vacio-texto">No se encontraron documentos con los filtros seleccionados.</div>`;
-
-        const pag = $('#bib-paginacion');
-        if (totalPaginas <= 1) { pag.innerHTML = ''; return; }
-        let html = `<button class="bib-btn-outline bib-btn-sm" data-pag="${pagina - 1}" ${pagina === 1 ? 'disabled' : ''}>Anterior</button>`;
-        for (let p = 1; p <= totalPaginas; p++) {
-            html += `<button class="bib-btn-sm ${p === pagina ? 'bib-btn-activo' : 'bib-btn-outline'}" data-pag="${p}">${p}</button>`;
-        }
-        html += `<button class="bib-btn-outline bib-btn-sm" data-pag="${pagina + 1}" ${pagina === totalPaginas ? 'disabled' : ''}>Siguiente</button>`;
-        pag.innerHTML = html;
+        try {
+            const r = await api('/recursos', { clave: 'catalogo', params: {
+                q: $('#bib-buscar').value.trim(), nivel: $('#bib-filtro-nivel').value, anio: $('#bib-filtro-anio').value,
+                tipo, sin_tipo: tipo ? '' : 'apertura', estatus: 'activo', page: pagina, per_page: PAGE_SIZE } });
+            recordar(r.data);
+            const n = r.meta.total;
+            $('#bib-conteo').textContent = `${n} documento${n !== 1 ? 's' : ''} encontrado${n !== 1 ? 's' : ''}`;
+            $('#bib-grid').innerHTML = r.data.length
+                ? r.data.map(tarjetaDocumento).join('')
+                : `<div class="bib-vacio-texto">No se encontraron documentos con los filtros seleccionados.</div>`;
+            paginador($('#bib-paginacion'), r.meta);
+        } catch (e) { ignorarAbort(e); }
     }
 
     $('#bib-paginacion').addEventListener('click', (e) => {
@@ -188,7 +225,7 @@ document.addEventListener('DOMContentLoaded', () => {
         renderCatalogo();
     });
 
-    $('#bib-buscar').addEventListener('input', () => { pagina = 1; renderCatalogo(); });
+    $('#bib-buscar').addEventListener('input', debounce(() => { pagina = 1; renderCatalogo(); }));
     ['#bib-filtro-nivel', '#bib-filtro-tipo', '#bib-filtro-anio'].forEach(id =>
         $(id).addEventListener('change', () => { pagina = 1; renderCatalogo(); })
     );
@@ -198,9 +235,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // =============================================
     let docActual = null;
 
-    function abrirDocumento(id) {
-        const doc = documentos.find(d => d.id === id);
-        if (!doc) return;
+    async function abrirDocumento(id) {
+        let doc;
+        try { doc = await api(`/recursos/${id}`, { clave: 'documento' }); } catch (e) { return ignorarAbort(e); }
+        if (doc.tipo === 'Partida' || doc.tipo === 'Apertura') return abrirVisor(id, doc);
+        cache.set(doc.id, doc);
 
         const vistaActual = [...$$('.bib-vista')].find(v => v.style.display === 'block')?.dataset.vista;
         if (vistaActual && vistaActual !== 'documento') vistaAnterior = PESTANA_DE_VISTA[vistaActual] || vistaActual;
@@ -210,7 +249,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }[vistaAnterior] || 'Volver';
 
         docActual = doc;
-        registrarHistorial(id);
+        registrarHistorial(doc);
 
         const ni = nivelInfo(doc.nivel);
         $('#bib-doc-portada').className = `bib-doc-portada ${doc.portada}`;
@@ -228,18 +267,20 @@ document.addEventListener('DOMContentLoaded', () => {
             ['Tipo', doc.tipo],
             ['Formato', doc.formato],
             ['Idioma', doc.idioma],
-            ['Nivel', `${ni.icono} ${ni.nombre} (${ni.puntos}+ pts)`],
-            ['Palabras clave', doc.palabrasClave.join(', ')],
-            ['Tamaño', doc.tamano],
+            ['Nivel', doc.nivel ? `${ni.icono} ${ni.nombre} (${ni.puntos}+ pts)` : 'Todos los niveles'],
+            ['Palabras clave', (doc.palabrasClave || []).join(', ') || '—'],
+            ['Tamaño', doc.tamano || '—'],
+            ['Estatus', doc.estatus],
         ];
         $('#bib-doc-meta').innerHTML = metadatos.map(([k, v]) =>
             `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join('');
 
         pintarBotonGuardar();
 
-        const relacionados = documentos
-            .filter(d => d.id !== doc.id && d.estatus === 'Activo' && (d.nivel === doc.nivel || d.tipo === doc.tipo))
-            .slice(0, 3);
+        // Relacionados: mismo nivel o tipo (los pide al servidor)
+        const relacionados = (await api('/recursos', { params: { tipo: doc.tipo_clave, estatus: 'activo', per_page: 4 } }).catch(() => ({ data: [] })))
+            .data.filter(d => d.id !== doc.id).slice(0, 3);
+        recordar(relacionados);
         $('#bib-relacionados-bloque').style.display = relacionados.length ? 'block' : 'none';
         $('#bib-relacionados').innerHTML = relacionados.map(rel => `
             <a href="#" class="bib-card bib-card-mini" data-ver-doc="${rel.id}">
@@ -258,7 +299,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function pintarBotonGuardar() {
         const btn = $('#bib-doc-guardar');
-        const esta = docActual && guardados.includes(docActual.id);
+        const esta = docActual && guardados.some(g => g.id === docActual.id);
         btn.classList.toggle('bib-btn-guardado', !!esta);
         btn.innerHTML = esta
             ? '<i class="ri-bookmark-fill"></i> Guardado'
@@ -267,21 +308,30 @@ document.addEventListener('DOMContentLoaded', () => {
 
     $('#bib-doc-guardar').addEventListener('click', () => {
         if (!docActual) return;
-        if (guardados.includes(docActual.id)) {
-            guardados = guardados.filter(id => id !== docActual.id);
+        if (guardados.some(g => g.id === docActual.id)) {
+            guardados = guardados.filter(g => g.id !== docActual.id);
             alerta('Documento quitado de tus guardados', 'warning');
         } else {
-            guardados = [docActual.id, ...guardados];
+            guardados = [resumen(docActual), ...guardados].slice(0, 100);
             alerta('Documento guardado');
         }
         escribirLS(LS_GUARDADOS, guardados);
         pintarBotonGuardar();
     });
 
-    ['#bib-doc-ver', '#bib-doc-descargar'].forEach(id =>
-        $(id).addEventListener('click', () =>
-            alerta('Disponible cuando se conecte el almacenamiento de archivos', 'warning'))
-    );
+    // Ver / descargar con URL firmada que caduca (SCRUM-31)
+    async function abrirArchivo(descargar) {
+        if (!docActual) return;
+        if (docActual.url && !docActual.tiene_archivo) { window.open(docActual.url, '_blank', 'noopener'); return; }
+        if (!docActual.tiene_archivo) { alerta('Este material no tiene archivo', 'warning'); return; }
+        const ventana = window.open('', '_blank');   // se abre antes del fetch para que el navegador no la bloquee
+        try {
+            const r = await api(`/recursos/${docActual.id}/enlace`);
+            if (ventana) { ventana.opener = null; ventana.location = descargar ? r.descargar : r.ver; }
+        } catch (e) { ventana?.close(); ignorarAbort(e); }
+    }
+    $('#bib-doc-ver').addEventListener('click', () => abrirArchivo(false));
+    $('#bib-doc-descargar').addEventListener('click', () => abrirArchivo(true));
 
     // =============================================
     //  MIS GUARDADOS e HISTORIAL
@@ -304,7 +354,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function renderGuardados() {
-        const docs = guardados.map(id => documentos.find(d => d.id === id)).filter(Boolean);
+        const docs = guardados;
         $('#bib-guardados-vacio').style.display = docs.length ? 'none' : 'block';
         $('#bib-guardados-lista').style.display = docs.length ? 'block' : 'none';
         $('#bib-guardados-lista').innerHTML = docs.map(doc =>
@@ -315,21 +365,21 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#bib-guardados-lista').addEventListener('click', (e) => {
         const b = e.target.closest('[data-quitar-guardado]');
         if (!b) return;
-        guardados = guardados.filter(id => id !== Number(b.dataset.quitarGuardado));
+        guardados = guardados.filter(g => g.id !== Number(b.dataset.quitarGuardado));
         escribirLS(LS_GUARDADOS, guardados);
         renderGuardados();
     });
 
-    function registrarHistorial(id) {
+    function registrarHistorial(doc) {
         const hoy = new Date();
         const f = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-${String(hoy.getDate()).padStart(2, '0')}`;
-        historial = [{ id, fechaConsulta: f }, ...historial.filter(h => h.id !== id)].slice(0, 50);
+        historial = [{ doc: resumen(doc), fechaConsulta: f }, ...historial.filter(h => h.doc?.id !== doc.id)].slice(0, 50);
         escribirLS(LS_HISTORIAL, historial);
     }
 
     function renderHistorial() {
         const items = historial
-            .map(h => ({ doc: documentos.find(d => d.id === h.id), fecha: h.fechaConsulta }))
+            .map(h => ({ doc: h.doc, fecha: h.fechaConsulta }))
             .filter(x => x.doc);
         $('#bib-historial-vacio').style.display = items.length ? 'none' : 'block';
         $('#bib-historial-lista').style.display = items.length ? 'block' : 'none';
@@ -343,7 +393,7 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#bib-historial-lista').addEventListener('click', (e) => {
         const b = e.target.closest('[data-quitar-historial]');
         if (!b) return;
-        historial = historial.filter(h => h.id !== Number(b.dataset.quitarHistorial));
+        historial = historial.filter(h => h.doc?.id !== Number(b.dataset.quitarHistorial));
         escribirLS(LS_HISTORIAL, historial);
         renderHistorial();
     });
@@ -357,33 +407,46 @@ document.addEventListener('DOMContentLoaded', () => {
     // =============================================
     //  PARTIDAS
     // =============================================
-    const RESULTADO_CLASE = { '1-0': 'bib-res-blancas', '0-1': 'bib-res-negras', '½-½': 'bib-res-tablas' };
+    const RESULTADO_CLASE = { '1-0': 'bib-res-blancas', '0-1': 'bib-res-negras', '½-½': 'bib-res-tablas', '1/2-1/2': 'bib-res-tablas' };
 
-    function renderPartidas() {
-        const q = $('#bib-partidas-buscar').value.trim().toLowerCase();
-        const nivel = $('#bib-partidas-nivel').value;
-        const filtradas = partidas.filter(p =>
-            (!q || [p.blancas, p.negras, p.apertura, p.eco].some(x => x.toLowerCase().includes(q))) &&
-            (!nivel || p.nivel === nivel)
-        );
-        $('#bib-partidas-tbody').innerHTML = filtradas.length
-            ? filtradas.map(p => `
+    let paginaPartidas = 1;
+    async function renderPartidas() {
+        const tipo = $('#bib-partidas-tipo')?.value || 'partida';
+        try {
+            const r = await api('/recursos', { clave: 'partidas', params: {
+                q: $('#bib-partidas-buscar').value.trim(), nivel: $('#bib-partidas-nivel').value,
+                tipo, estatus: 'activo', page: paginaPartidas, per_page: 25 } });
+            recordar(r.data);
+            const conteo = $('#bib-partidas-conteo');
+            if (conteo) conteo.textContent = `${r.meta.total} ${tipo === 'apertura' ? 'apertura' : 'partida'}${r.meta.total !== 1 ? 's' : ''}`;
+            $('#bib-partidas-tbody').innerHTML = r.data.length
+                ? r.data.map(p => `
                 <tr>
-                    <td class="bib-negrita">${esc(p.blancas)}</td>
-                    <td>${esc(p.negras)}</td>
-                    <td><span class="bib-resultado ${RESULTADO_CLASE[p.resultado] || ''}">${esc(p.resultado)}</span></td>
-                    <td>${esc(p.apertura)} <span class="bib-eco">${esc(p.eco)}</span></td>
+                    <td class="bib-negrita">${esc(p.blancas || (p.tipo === 'Apertura' ? p.titulo : '—'))}</td>
+                    <td>${esc(p.negras || '—')}</td>
+                    <td><span class="bib-resultado ${RESULTADO_CLASE[p.resultado] || ''}">${esc(p.resultado || '*')}</span></td>
+                    <td>${esc(p.apertura || p.titulo)} ${p.eco ? `<span class="bib-eco">${esc(p.eco)}</span>` : ''}</td>
                     <td>${badgeNivel(p.nivel)}</td>
                     <td class="bib-texto-suave">${esc(fechaCorta(p.fecha))}</td>
                     <td class="bib-derecha">
                         <button class="bib-btn-outline bib-btn-sm" data-ver-partida="${p.id}"><i class="ri-eye-line"></i> Ver</button>
                     </td>
                 </tr>`).join('')
-            : `<tr><td colspan="7" class="bib-vacio-texto">No se encontraron partidas.</td></tr>`;
+                : `<tr><td colspan="7" class="bib-vacio-texto">No se encontraron partidas.</td></tr>`;
+            const pag = $('#bib-partidas-paginacion');
+            if (pag) paginador(pag, r.meta);
+        } catch (e) { ignorarAbort(e); }
     }
 
-    $('#bib-partidas-buscar').addEventListener('input', renderPartidas);
-    $('#bib-partidas-nivel').addEventListener('change', renderPartidas);
+    $('#bib-partidas-buscar').addEventListener('input', debounce(() => { paginaPartidas = 1; renderPartidas(); }));
+    $('#bib-partidas-nivel').addEventListener('change', () => { paginaPartidas = 1; renderPartidas(); });
+    $('#bib-partidas-tipo')?.addEventListener('change', () => { paginaPartidas = 1; renderPartidas(); });
+    $('#bib-partidas-paginacion')?.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-pag]');
+        if (!b || b.disabled) return;
+        paginaPartidas = Number(b.dataset.pag);
+        renderPartidas();
+    });
 
     // =============================================
     //  VISOR DE PARTIDA
@@ -393,160 +456,61 @@ document.addEventListener('DOMContentLoaded', () => {
         K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙',
         k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟',
     };
-    // Notación española → letra interna
-    const ES_A_PIEZA = { R: 'K', D: 'Q', T: 'R', A: 'B', C: 'N' };
-
-    const tableroInicial = () => [
-        ['r', 'n', 'b', 'q', 'k', 'b', 'n', 'r'],
-        ['p', 'p', 'p', 'p', 'p', 'p', 'p', 'p'],
-        [null, null, null, null, null, null, null, null],
-        [null, null, null, null, null, null, null, null],
-        [null, null, null, null, null, null, null, null],
-        [null, null, null, null, null, null, null, null],
-        ['P', 'P', 'P', 'P', 'P', 'P', 'P', 'P'],
-        ['R', 'N', 'B', 'Q', 'K', 'B', 'N', 'R'],
-    ];
-
-    const casilla = (s) => ({ f: s.charCodeAt(0) - 97, r: 8 - Number(s[1]) });
-    const esBlanca = (p) => p && p === p.toUpperCase();
-
-    function alcanza(tab, tipo, desde, hasta) {
-        const df = hasta.f - desde.f, dr = hasta.r - desde.r;
-        const adf = Math.abs(df), adr = Math.abs(dr);
-        const libre = (pf, pr) => {
-            const sf = Math.sign(pf), sr = Math.sign(pr);
-            let f = desde.f + sf, r = desde.r + sr;
-            while (f !== hasta.f || r !== hasta.r) {
-                if (tab[r][f]) return false;
-                f += sf; r += sr;
+    // Las posiciones vienen del servidor (FEN de cada jugada, ya validadas en SCRUM-30)
+    function tableroDeFen(fen) {
+        return fen.split(' ')[0].split('/').map(fila => {
+            const out = [];
+            for (const c of fila) {
+                if (/\d/.test(c)) for (let i = 0; i < Number(c); i++) out.push(null);
+                else out.push(c);
             }
-            return true;
-        };
-        switch (tipo) {
-            case 'N': return (adf === 1 && adr === 2) || (adf === 2 && adr === 1);
-            case 'K': return Math.max(adf, adr) === 1;
-            case 'R': return (df === 0 || dr === 0) && libre(df, dr);
-            case 'B': return adf === adr && adf > 0 && libre(df, dr);
-            case 'Q': return (df === 0 || dr === 0 || adf === adr) && libre(df, dr);
-        }
-        return false;
-    }
-
-    function reyEnJaque(tab, blancas) {
-        const rey = blancas ? 'K' : 'k';
-        let pos = null;
-        tab.forEach((fila, r) => fila.forEach((p, f) => { if (p === rey) pos = { f, r }; }));
-        if (!pos) return false;
-        for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
-            const p = tab[r][f];
-            if (!p || esBlanca(p) === blancas) continue;
-            const t = p.toUpperCase();
-            if (t === 'P') {
-                const dir = esBlanca(p) ? -1 : 1;
-                if (pos.r - r === dir && Math.abs(pos.f - f) === 1) return true;
-            } else if (alcanza(tab, t, { f, r }, pos)) return true;
-        }
-        return false;
-    }
-
-    // Aplica una jugada en notación española; regresa el nuevo estado o null si no se pudo leer.
-    function aplicarJugada(estado, san, turnoBlancas) {
-        const tab = estado.tab.map(f => f.slice());
-        let ep = null;
-        const jug = san.replace(/[+#!?]/g, '').trim();
-        const fila = turnoBlancas ? 7 : 0;
-
-        if (/^(0-0-0|O-O-O)$/.test(jug) || /^(0-0|O-O)$/.test(jug)) {
-            const largo = jug.length > 3;
-            const rey = turnoBlancas ? 'K' : 'k', torre = turnoBlancas ? 'R' : 'r';
-            tab[fila][4] = null;
-            if (largo) { tab[fila][0] = null; tab[fila][2] = rey; tab[fila][3] = torre; }
-            else { tab[fila][7] = null; tab[fila][6] = rey; tab[fila][5] = torre; }
-            return { tab, ep, desde: { f: 4, r: fila }, hasta: { f: largo ? 2 : 6, r: fila } };
-        }
-
-        const m = jug.match(/^([RDTAC])?([a-h])?([1-8])?x?([a-h][1-8])(?:=?([DTAC]))?$/);
-        if (!m) return null;
-        const tipo = m[1] ? ES_A_PIEZA[m[1]] : 'P';
-        const hasta = casilla(m[4]);
-        const pieza = turnoBlancas ? tipo : tipo.toLowerCase();
-
-        const candidatos = [];
-        for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
-            if (tab[r][f] !== pieza) continue;
-            if (m[2] && f !== m[2].charCodeAt(0) - 97) continue;
-            if (m[3] && r !== 8 - Number(m[3])) continue;
-            const desde = { f, r };
-            if (tipo === 'P') {
-                const dir = turnoBlancas ? -1 : 1;
-                const destino = tab[hasta.r][hasta.f];
-                const captura = Math.abs(hasta.f - f) === 1 && hasta.r - r === dir &&
-                    ((destino && esBlanca(destino) !== turnoBlancas) ||
-                        (estado.ep && estado.ep.f === hasta.f && estado.ep.r === hasta.r));
-                const avance = hasta.f === f && !destino && (
-                    hasta.r - r === dir ||
-                    (hasta.r - r === 2 * dir && r === (turnoBlancas ? 6 : 1) && !tab[r + dir][f]));
-                if (captura || avance) candidatos.push(desde);
-            } else if (alcanza(tab, tipo, desde, hasta)) {
-                candidatos.push(desde);
-            }
-        }
-
-        // Si hay más de uno, descartar el que deja al rey en jaque (pieza clavada)
-        const validos = candidatos.filter(d => {
-            const prueba = tab.map(f => f.slice());
-            prueba[hasta.r][hasta.f] = prueba[d.r][d.f];
-            prueba[d.r][d.f] = null;
-            return !reyEnJaque(prueba, turnoBlancas);
+            return out;
         });
-        const desde = validos[0];
-        if (!desde) return null;
-
-        if (tipo === 'P') {
-            if (desde.f !== hasta.f && !tab[hasta.r][hasta.f]) tab[desde.r][hasta.f] = null; // al paso
-            if (Math.abs(hasta.r - desde.r) === 2) ep = { f: desde.f, r: (desde.r + hasta.r) / 2 };
-        }
-        let nueva = tab[desde.r][desde.f];
-        if (m[5]) nueva = turnoBlancas ? ES_A_PIEZA[m[5]] : ES_A_PIEZA[m[5]].toLowerCase();
-        tab[hasta.r][hasta.f] = nueva;
-        tab[desde.r][desde.f] = null;
-        return { tab, ep, desde, hasta };
+    }
+    // Casillas que cambiaron entre dos posiciones (para marcar la última jugada)
+    function cambio(antes, despues) {
+        const dif = [];
+        for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) if (antes[r][f] !== despues[r][f]) dif.push({ f, r, vacia: !despues[r][f] });
+        const desde = dif.find(d => d.vacia) || dif[0];
+        const hasta = dif.find(d => !d.vacia) || dif[1] || dif[0];
+        return desde ? { desde, hasta } : {};
     }
 
     let partidaActual = null;
     let posiciones = [];   // posiciones[0] = inicial, posiciones[i] = tras la jugada i
     let movIndex = -1;
 
-    function abrirVisor(id) {
-        const p = partidas.find(x => x.id === id);
-        if (!p) return;
-        partidaActual = p;
-
-        posiciones = [{ tab: tableroInicial(), ep: null }];
-        for (let i = 0; i < p.movimientos.length; i++) {
-            const sig = aplicarJugada(posiciones[i], p.movimientos[i], i % 2 === 0);
-            if (!sig) {
-                console.warn(`Biblioteca: no se pudo leer la jugada ${i + 1} (${p.movimientos[i]}) de la partida ${p.id}`);
-                break;
-            }
-            posiciones.push(sig);
+    async function abrirVisor(id, yaCargada = null) {
+        let p = yaCargada;
+        if (!p) {
+            try { p = await api(`/recursos/${id}`, { clave: 'visor' }); } catch (e) { return ignorarAbort(e); }
         }
+        partidaActual = p;
+        cache.set(p.id, p);
+        registrarHistorial(p);
+
+        posiciones = (p.fens || []).map((fen, i, todas) => {
+            const tab = tableroDeFen(fen);
+            return i === 0 ? { tab } : { tab, ...cambio(tableroDeFen(todas[i - 1]), tab) };
+        });
+        if (!posiciones.length) posiciones = [{ tab: tableroDeFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') }];
         movIndex = -1;
 
-        $('#bib-visor-titulo').textContent = `${p.blancas} vs ${p.negras}`;
+        $('#bib-visor-titulo').textContent = p.blancas ? `${p.blancas} vs ${p.negras || '?'}` : p.titulo;
         const ficha = [
-            ['Blancas', esc(p.blancas)],
-            ['Negras', esc(p.negras)],
-            ['Resultado', `<span class="bib-resultado ${RESULTADO_CLASE[p.resultado] || ''}">${esc(p.resultado)}</span>`],
+            ['Blancas', esc(p.blancas || '—')],
+            ['Negras', esc(p.negras || '—')],
+            ['Resultado', `<span class="bib-resultado ${RESULTADO_CLASE[p.resultado] || ''}">${esc(p.resultado || '*')}</span>`],
             ['Fecha', esc(fechaCorta(p.fecha))],
-            ['Evento', esc(p.evento)],
-            ['Apertura', esc(p.apertura)],
-            ['ECO', `<span class="bib-eco">${esc(p.eco)}</span>`],
+            ['Evento', esc(p.evento || '—')],
+            ['Apertura', esc(p.apertura || '—')],
+            ['ECO', p.eco ? `<span class="bib-eco">${esc(p.eco)}</span>` : '—'],
         ];
         $('#bib-visor-ficha').innerHTML = ficha.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
         $('#bib-visor-nivel').innerHTML = badgeNivel(p.nivel);
 
         let html = '';
+        p.movimientos = p.movimientos || [];
         for (let i = 0; i < p.movimientos.length; i += 2) {
             html += `<div class="bib-jugada">
                 <span class="bib-jugada-num">${i / 2 + 1}.</span>
@@ -554,7 +518,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ${p.movimientos[i + 1] ? `<button class="bib-jugada-btn" data-mov="${i + 1}">${esc(p.movimientos[i + 1])}</button>` : ''}
             </div>`;
         }
-        html += `<div class="bib-jugada-resultado">${esc(p.resultado)}</div>`;
+        html += `<div class="bib-jugada-resultado">${esc(p.resultado || '*')}</div>`;
         $('#bib-visor-jugadas').innerHTML = html;
 
         pintarVisor();
@@ -611,50 +575,65 @@ document.addEventListener('DOMContentLoaded', () => {
     // =============================================
     //  GESTIÓN DE MATERIAL
     // =============================================
-    function renderGestion() {
-        const q = $('#bib-gestion-buscar').value.trim().toLowerCase();
-        const filtrados = documentos.filter(d =>
-            !q || d.titulo.toLowerCase().includes(q) || d.creador.toLowerCase().includes(q));
-        $('#bib-gestion-tbody').innerHTML = filtrados.length
-            ? filtrados.map(d => `
+    let paginaGestion = 1;
+    async function renderGestion() {
+        try {
+            const r = await api('/recursos', { clave: 'gestion', params: {
+                q: $('#bib-gestion-buscar').value.trim(), sin_tipo: 'apertura', page: paginaGestion, per_page: 25 } });
+            recordar(r.data);
+            $('#bib-gestion-tbody').innerHTML = r.data.length
+                ? r.data.map(d => `
                 <tr>
                     <td><p class="bib-negrita">${esc(d.titulo)}</p><p class="bib-texto-suave">${esc(d.creador)}</p></td>
                     <td>${badgeTipo(d.tipo)}</td>
                     <td>${badgeNivel(d.nivel)}</td>
-                    <td><span class="bib-eco">${esc(d.formato)}</span></td>
-                    <td class="bib-texto-suave">${esc(d.tamano)}</td>
+                    <td><span class="bib-eco">${esc(d.formato || '—')}</span></td>
+                    <td class="bib-texto-suave">${esc(d.tamano || '—')}</td>
                     <td class="bib-texto-suave">${esc(fechaCorta(d.fecha))}</td>
                     <td><button class="bib-estatus ${d.estatus === 'Activo' ? 'bib-estatus-activo' : 'bib-estatus-inactivo'}"
-                        data-estatus="${d.id}" title="Cambiar estatus">${esc(d.estatus)}</button></td>
+                        data-estatus="${d.id}" title="${PERMISOS.edit ? 'Cambiar estatus' : ''}" ${PERMISOS.edit ? '' : 'disabled'}>${esc(d.estatus)}</button></td>
                     <td class="bib-derecha bib-acciones">
                         <button class="bib-icono-btn" data-ver-doc="${d.id}" title="Ver"><i class="ri-eye-line"></i></button>
-                        <button class="bib-icono-btn" data-editar="${d.id}" title="Editar"><i class="ri-pencil-line"></i></button>
-                        <button class="bib-icono-btn bib-icono-peligro" data-eliminar="${d.id}" title="Eliminar"><i class="ri-delete-bin-line"></i></button>
+                        ${PERMISOS.edit ? `<button class="bib-icono-btn" data-editar="${d.id}" title="Editar"><i class="ri-pencil-line"></i></button>` : ''}
+                        ${PERMISOS.eliminar ? `<button class="bib-icono-btn bib-icono-peligro" data-eliminar="${d.id}" title="Eliminar"><i class="ri-delete-bin-line"></i></button>` : ''}
                     </td>
                 </tr>`).join('')
-            : `<tr><td colspan="8" class="bib-vacio-texto">No hay documentos.</td></tr>`;
+                : `<tr><td colspan="8" class="bib-vacio-texto">No hay documentos.</td></tr>`;
+            const pag = $('#bib-gestion-paginacion');
+            if (pag) paginador(pag, r.meta);
+        } catch (e) { ignorarAbort(e); }
     }
 
-    $('#bib-gestion-buscar').addEventListener('input', renderGestion);
+    $('#bib-gestion-buscar').addEventListener('input', debounce(() => { paginaGestion = 1; renderGestion(); }));
+    $('#bib-gestion-paginacion')?.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-pag]');
+        if (!b || b.disabled) return;
+        paginaGestion = Number(b.dataset.pag);
+        renderGestion();
+    });
 
-    $('#bib-gestion-tbody').addEventListener('click', (e) => {
-        const est = e.target.closest('[data-estatus]');
-        if (est) {
-            const d = documentos.find(x => x.id === Number(est.dataset.estatus));
-            d.estatus = d.estatus === 'Activo' ? 'Inactivo' : 'Activo';
-            renderGestion();
-            return;
-        }
-        const ed = e.target.closest('[data-editar]');
-        if (ed) { abrirModal(documentos.find(x => x.id === Number(ed.dataset.editar))); return; }
-        const el = e.target.closest('[data-eliminar]');
-        if (el) {
-            const d = documentos.find(x => x.id === Number(el.dataset.eliminar));
-            if (!confirm(`¿Eliminar "${d.titulo}"?`)) return;
-            documentos = documentos.filter(x => x.id !== d.id);
-            renderGestion();
-            alerta('Material eliminado');
-        }
+    $('#bib-gestion-tbody').addEventListener('click', async (e) => {
+        try {
+            const est = e.target.closest('[data-estatus]');
+            if (est && PERMISOS.edit) {
+                const d = cache.get(Number(est.dataset.estatus));
+                const r = await api(`/recursos/${d.id}/estatus`, { metodo: 'PATCH', datos: { publicado: d.estatus !== 'Activo' } });
+                alerta(r.message);
+                renderGestion();
+                return;
+            }
+            const ed = e.target.closest('[data-editar]');
+            if (ed) { abrirModal(await api(`/recursos/${ed.dataset.editar}`)); return; }
+            const el = e.target.closest('[data-eliminar]');
+            if (el) {
+                const d = cache.get(Number(el.dataset.eliminar));
+                if (!confirm(`¿Eliminar "${d.titulo}"? También se borra el progreso de los alumnos en este material.`)) return;
+                const r = await api(`/recursos/${d.id}`, { metodo: 'DELETE' });
+                guardados = guardados.filter(g => g.id !== d.id); escribirLS(LS_GUARDADOS, guardados);
+                renderGestion();
+                alerta(r.message);
+            }
+        } catch (err) { ignorarAbort(err); }
     });
 
     // ── Modal Agregar / Editar ─────────────────────
@@ -665,19 +644,27 @@ document.addEventListener('DOMContentLoaded', () => {
     let editandoId = null;
     let archivo = null;   // { nombre, tamano, sha256 }
 
+    const CON_PGN = ['Partida', 'Apertura'];
+    const ACEPTA = { pdf: 'PDF', epub: 'EPUB', mp4: 'MP4', webm: 'WEBM' };
+    let archivoFile = null;
+
     function abrirModal(doc = null) {
         form.reset();
         editandoId = doc ? doc.id : null;
-        archivo = null;
+        archivo = null; archivoFile = null;
         document.getElementById('bib-modal-titulo').textContent = doc ? 'Editar material' : 'Agregar material';
+        document.getElementById('bib-pgn-estado') && (document.getElementById('bib-pgn-estado').textContent = '');
         if (doc) {
             form.titulo.value = doc.titulo;
-            form.creador.value = doc.creador;
-            form.tema.value = doc.tema;
-            form.descripcion.value = doc.descripcion;
+            form.creador.value = doc.creador || '';
+            form.tema.value = doc.tema || '';
+            form.descripcion.value = doc.descripcion || '';
             form.tipo.value = doc.tipo;
-            form.nivel.value = doc.nivel;
-            form.palabrasClave.value = doc.palabrasClave.join(', ');
+            form.nivel.value = doc.nivel || '';
+            form.palabrasClave.value = (doc.palabrasClave || []).join(', ');
+            if (form.enlaceVideo) form.enlaceVideo.value = doc.url || '';
+            if (form.pgn) form.pgn.value = doc.pgn || '';
+            if (doc.sha256) archivo = { nombre: 'Archivo actual', tamano: doc.tamano, sha256: doc.sha256, actual: true };
         }
         actualizarFormulario();
         modal.classList.add('open');
@@ -685,32 +672,59 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     const cerrarModal = () => modal.classList.remove('open');
 
-    $('#bib-btn-agregar').addEventListener('click', () => abrirModal());
+    if (!PERMISOS.edit && !PERMISOS.eliminar) seccion.querySelector('.bib-tab[data-vista="gestion"]')?.remove();
+    const btnAgregar = $('#bib-btn-agregar');
+    if (!PERMISOS.edit && btnAgregar) btnAgregar.style.display = 'none';
+    btnAgregar?.addEventListener('click', () => abrirModal());
     document.getElementById('bib-modal-cancelar').addEventListener('click', cerrarModal);
     document.getElementById('bib-modal-cerrar').addEventListener('click', cerrarModal);
     modal.addEventListener('click', (e) => { if (e.target === modal) cerrarModal(); });
 
     function actualizarFormulario() {
-        const esVideo = form.tipo.value === 'Video';
-        document.getElementById('bib-bloque-archivo').style.display = esVideo ? 'none' : '';
+        const tipo = form.tipo.value;
+        const esVideo = tipo === 'Video';
+        const conPgn = CON_PGN.includes(tipo);
+        document.getElementById('bib-bloque-archivo').style.display = conPgn ? 'none' : '';
         document.getElementById('bib-bloque-video').style.display = esVideo ? '' : 'none';
-        document.getElementById('bib-bloque-sha').style.display = archivo && !esVideo ? '' : 'none';
+        const bloquePgn = document.getElementById('bib-bloque-pgn');
+        if (bloquePgn) bloquePgn.style.display = conPgn || tipo === 'Ejercicio' ? '' : 'none';
+        document.getElementById('bib-bloque-sha').style.display = archivo && !conPgn ? '' : 'none';
         form.sha256.value = archivo ? archivo.sha256 : '';
         zona.innerHTML = archivo
-            ? `<div class="bib-archivo-elegido"><i class="ri-file-text-line"></i><span>${esc(archivo.nombre)}</span>
+            ? `<div class="bib-archivo-elegido"><i class="ri-file-text-line"></i><span>${esc(archivo.nombre)} ${archivo.tamano ? '· ' + esc(archivo.tamano) : ''}</span>
                 <button type="button" class="bib-icono-btn" id="bib-quitar-archivo" title="Quitar"><i class="ri-close-line"></i></button></div>`
             : `<i class="ri-upload-2-line bib-zona-icono"></i>
                <p>Arrastra tu archivo aquí o haz clic para seleccionar</p>
-               <p class="bib-texto-suave">PDF, imagen o PGN</p>`;
-        const listo = form.titulo.value.trim() && form.tipo.value && form.nivel.value;
+               <p class="bib-texto-suave">PDF o EPUB hasta 50 MB · MP4 o WEBM hasta 200 MB · PGN</p>`;
+        const pgnOk = !conPgn || (form.pgn && form.pgn.value.trim());
+        const listo = form.titulo.value.trim() && tipo && pgnOk;
         document.getElementById('bib-modal-guardar').disabled = !listo;
     }
 
     form.addEventListener('input', actualizarFormulario);
     form.addEventListener('change', actualizarFormulario);
 
+    // Revisa el PGN en el servidor mientras se escribe (SCRUM-30)
+    const revisarPgn = debounce(async () => {
+        const estado = document.getElementById('bib-pgn-estado');
+        if (!form.pgn || !estado) return;
+        const pgn = form.pgn.value.trim();
+        if (!pgn) { estado.textContent = ''; return; }
+        try {
+            const r = await api('/validar-pgn', { metodo: 'POST', datos: { pgn }, clave: 'pgn' });
+            estado.className = 'bib-texto-suave';
+            estado.textContent = `✓ ${r.jugadas} jugadas válidas · resultado ${r.resultado}`;
+            if (!form.creador.value && r.etiquetas.White) form.creador.value = `${r.etiquetas.White} vs ${r.etiquetas.Black || '?'}`;
+        } catch (e) {
+            if (e.name === 'AbortError') return;
+            estado.className = 'bib-error';
+            estado.textContent = e.json?.error || e.message;
+        }
+    }, 500);
+    form.pgn?.addEventListener('input', revisarPgn);
+
     async function calcularSHA256(file) {
-        if (!window.crypto?.subtle) return '(no disponible en este navegador)';
+        if (!window.crypto?.subtle) return '(se calcula al guardar)';
         const buf = await file.arrayBuffer();
         const hash = await crypto.subtle.digest('SHA-256', buf);
         return [...new Uint8Array(hash)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -723,6 +737,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function tomarArchivo(file) {
         if (!file) return;
+        const ext = file.name.split('.').pop().toLowerCase();
+        if (ext === 'pgn') {   // un .pgn se pasa al cuadro de texto y se valida
+            if (!CON_PGN.includes(form.tipo.value)) form.tipo.value = 'Partida';
+            form.pgn.value = await file.text();
+            actualizarFormulario();
+            revisarPgn();
+            return;
+        }
+        if (!ACEPTA[ext]) { alerta('Tipo de archivo no permitido. Usa PDF, EPUB, MP4, WEBM o PGN.', 'error'); return; }
+        archivoFile = file;
         archivo = { nombre: file.name, tamano: formatoTamano(file.size), sha256: 'Calculando…' };
         actualizarFormulario();
         archivo.sha256 = await calcularSHA256(file);
@@ -732,7 +756,7 @@ document.addEventListener('DOMContentLoaded', () => {
     zona.addEventListener('click', (e) => {
         if (e.target.closest('#bib-quitar-archivo')) {
             e.stopPropagation();
-            archivo = null;
+            archivo = null; archivoFile = null;
             inputArchivo.value = '';
             actualizarFormulario();
             return;
@@ -748,41 +772,34 @@ document.addEventListener('DOMContentLoaded', () => {
         tomarArchivo(e.dataTransfer.files[0]);
     });
 
-    form.addEventListener('submit', (e) => {
+    form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const datos = {
-            titulo: form.titulo.value.trim(),
-            creador: form.creador.value.trim() || 'Sin especificar',
-            tema: form.tema.value.trim() || 'General',
-            descripcion: form.descripcion.value.trim(),
-            tipo: form.tipo.value,
-            nivel: form.nivel.value,
-            palabrasClave: form.palabrasClave.value.split(',').map(s => s.trim()).filter(Boolean),
-        };
-        if (!datos.titulo || !datos.tipo || !datos.nivel) return;
+        const fd = new FormData();
+        fd.append('titulo', form.titulo.value.trim());
+        fd.append('tipo', form.tipo.value);
+        fd.append('creador', form.creador.value.trim());
+        fd.append('tema', form.tema.value.trim());
+        fd.append('descripcion', form.descripcion.value.trim());
+        fd.append('nivel', form.nivel.value);
+        fd.append('palabras_clave', form.palabrasClave.value);
+        if (form.tipo.value === 'Video' && form.enlaceVideo?.value.trim()) fd.append('url', form.enlaceVideo.value.trim());
+        if (form.pgn && form.pgn.value.trim() && (CON_PGN.includes(form.tipo.value) || form.tipo.value === 'Ejercicio')) fd.append('pgn', form.pgn.value);
+        if (archivoFile) fd.append('archivo', archivoFile);
 
-        if (editandoId) {
-            const d = documentos.find(x => x.id === editandoId);
-            Object.assign(d, datos);
-            if (archivo) { d.tamano = archivo.tamano; d.formato = archivo.nombre.toLowerCase().endsWith('.pgn') ? 'PGN' : 'PDF'; }
-            alerta('Material actualizado');
-        } else {
-            const esVideo = datos.tipo === 'Video';
-            const nombre = archivo?.nombre.toLowerCase() || '';
-            documentos.unshift({
-                id: Date.now(),
-                ...datos,
-                fecha: new Date().toISOString().slice(0, 10),
-                formato: esVideo ? 'MP4' : nombre.endsWith('.pgn') ? 'PGN' : /\.(png|jpe?g)$/.test(nombre) ? 'Imagen' : 'PDF',
-                idioma: 'Español',
-                tamano: esVideo ? 'Enlace externo' : (archivo?.tamano || '—'),
-                estatus: 'Activo',
-                portada: PORTADAS[documentos.length % PORTADAS.length],
-            });
-            alerta('Material agregado (solo en esta sesión, aún no se guarda en la base de datos)', 'warning');
+        const btn = document.getElementById('bib-modal-guardar');
+        btn.disabled = true;
+        btn.textContent = archivoFile ? 'Subiendo…' : 'Guardando…';
+        try {
+            const r = await api(editandoId ? `/recursos/${editandoId}` : '/recursos', { metodo: 'POST', datos: fd });
+            alerta(r.message);
+            cerrarModal();
+            renderGestion();
+        } catch (err) {
+            alerta(err.message, 'error');
+        } finally {
+            btn.textContent = 'Guardar material';
+            actualizarFormulario();
         }
-        cerrarModal();
-        renderGestion();
     });
 
     // ── Inicio ─────────────────────────────────────

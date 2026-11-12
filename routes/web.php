@@ -5,6 +5,8 @@ use App\Http\Controllers\FacturaController;
 use App\Http\Controllers\RolController;
 use App\Http\Controllers\ExtraescolarController;
 use App\Http\Controllers\NivelesController;
+use App\Http\Controllers\BibliotecaController;
+use App\Http\Middleware\EsAlumno;
 use App\Http\Controllers\PersonalProfileController;
 use App\Http\Controllers\AlumnoProfileController;
 use App\Http\Middleware\VerificarToken;
@@ -87,7 +89,33 @@ Route::post('/guardar-token', function (Request $request) {
     return response()->json(['ok' => true]);
 })->name('guardar.token');
 
+// Biblioteca: archivo con URL firmada que caduca (SCRUM-31). La firma es el permiso.
+Route::get('/biblioteca/archivo/{uid}', [BibliotecaController::class, 'archivo'])
+    ->middleware('signed')->name('biblioteca.archivo');
+
 Route::middleware(VerificarToken::class)->group(function () {
+
+    // ── Biblioteca: personal (SCRUM-27, 30, 31, 33, 46) ─────────────
+    Route::get('/api/biblioteca/recursos',               [BibliotecaController::class, 'listar'])->middleware('permiso:biblioteca.ver');
+    Route::get('/api/biblioteca/filtros',                [BibliotecaController::class, 'filtros'])->middleware('permiso:biblioteca.ver');
+    Route::get('/api/biblioteca/recursos/{id}',          [BibliotecaController::class, 'ver'])->whereNumber('id')->middleware('permiso:biblioteca.ver');
+    Route::get('/api/biblioteca/recursos/{id}/enlace',   [BibliotecaController::class, 'enlace'])->whereNumber('id')->middleware('permiso:biblioteca.ver');
+    Route::post('/api/biblioteca/recursos',              [BibliotecaController::class, 'crear'])->middleware('permiso:biblioteca.editar');
+    Route::post('/api/biblioteca/recursos/{id}',         [BibliotecaController::class, 'editar'])->whereNumber('id')->middleware('permiso:biblioteca.editar');
+    Route::patch('/api/biblioteca/recursos/{id}/estatus',[BibliotecaController::class, 'estatus'])->whereNumber('id')->middleware('permiso:biblioteca.editar|biblioteca.publicar');
+    Route::delete('/api/biblioteca/recursos/{id}',       [BibliotecaController::class, 'eliminar'])->whereNumber('id')->middleware('permiso:biblioteca.eliminar');
+    Route::post('/api/biblioteca/validar-pgn',           [BibliotecaController::class, 'validarPgn'])->middleware('permiso:biblioteca.editar');
+
+    // ── Biblioteca: alumno (SCRUM-32, 47) ───────────────────────────
+    Route::middleware(EsAlumno::class)->group(function () {
+        Route::get('/api/biblioteca/alumno/recursos',                [BibliotecaController::class, 'alumnoListar']);
+        Route::get('/api/biblioteca/alumno/recursos/{id}',           [BibliotecaController::class, 'alumnoVer'])->whereNumber('id');
+        Route::get('/api/biblioteca/alumno/recursos/{id}/enlace',    [BibliotecaController::class, 'alumnoEnlace'])->whereNumber('id');
+        Route::post('/api/biblioteca/alumno/recursos/{id}/progreso', [BibliotecaController::class, 'alumnoProgreso'])->whereNumber('id');
+        Route::put('/api/biblioteca/alumno/recursos/{id}/favorito',  [BibliotecaController::class, 'alumnoFavorito'])->whereNumber('id');
+        Route::get('/api/biblioteca/alumno/progreso',                [BibliotecaController::class, 'alumnoMiProgreso']);
+    });
+
 
     Route::get('/dashboardAdmin', function () {
         // 🔒 Bloquear alumnos

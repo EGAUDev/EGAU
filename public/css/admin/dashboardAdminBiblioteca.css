@@ -669,3 +669,6 @@
     .bib-visor { flex-direction: column; }
     .bib-visor-der { width: 100%; }
 }
+
+/* Mensaje de error del PGN en el formulario */
+.bib-error { color: #c0392b; font-size: 0.8rem; }

@@ -33,6 +33,7 @@
         { id: 'estatus', nombre: 'Status', hasEdit: false },
         { id: 'pagos', nombre: 'Pagos', hasEdit: true },
         { id: 'niveles', nombre: 'Niveles', hasEdit: true },
+        { id: 'biblioteca', nombre: 'Biblioteca', hasEdit: true, hasDelete: true },
     ];
 
     // ── Init ─────────────────────────────────────────────────
@@ -267,10 +268,13 @@
                         const edit = m.hasEdit ? ((rol[editKey] == true || rol[editKey] == 1) ? '✓' : '—') : 'N/A';
                         const verStyle = ver === '✓' ? 'color:var(--verde,#1e8e3e);font-weight:700;' : 'color:var(--texto-suave);';
                         const editStyle = edit === '✓' ? 'color:var(--verde,#1e8e3e);font-weight:700;' : 'color:var(--texto-suave);';
+                        const del = m.hasDelete ? ((rol[`${m.id}_eliminar`] == true || rol[`${m.id}_eliminar`] == 1) ? '✓' : '—') : '—';
+                        const delStyle = del === '✓' ? 'color:var(--verde,#1e8e3e);font-weight:700;' : 'color:var(--texto-suave);';
                         return `<tr>
                             <td><strong>${m.nombre}</strong></td>
                             <td class="text-center" style="${verStyle}">${ver}</td>
                             <td class="text-center" style="${editStyle}">${edit}</td>
+                            <td class="text-center" style="${delStyle}">${del}</td>
                         </tr>`;
                     }).join('');
                 }
@@ -379,6 +383,8 @@
                     const chkEdit = $(`perm-${m.id}-edit`);
                     if (chkVer) chkVer.checked = (rol[verKey] == true || rol[verKey] == 1);
                     if (chkEdit) chkEdit.checked = (rol[editKey] == true || rol[editKey] == 1);
+                    const chkDel = $(`perm-${m.id}-eliminar`);
+                    if (chkDel) chkDel.checked = (rol[`${m.id}_eliminar`] == true || rol[`${m.id}_eliminar`] == 1);
                 });
 
                 abrirModal(overlay);
@@ -416,6 +422,7 @@
             const editKey = `${m.id}_edit`;
             body[verKey] = !!($(`perm-${m.id}-ver`)?.checked);
             if (m.hasEdit) body[editKey] = !!($(`perm-${m.id}-edit`)?.checked);
+            if (m.hasDelete) body[`${m.id}_eliminar`] = !!($(`perm-${m.id}-eliminar`)?.checked);
         });
 
         const url = state.modoEdicion ? `/admin/roles/${state.idEditando}` : '/admin/roles';

@@ -111,6 +111,7 @@
                                 <th>Módulo</th>
                                 <th class="text-center">Ver</th>
                                 <th class="text-center">Editar</th>
+                                <th class="text-center">Eliminar</th>
                             </tr>
                         </thead>
                         <tbody id="vr-permisos-tbody">
@@ -202,6 +203,7 @@
                                 <th>Módulo</th>
                                 <th class="text-center">Ver (Acceso)</th>
                                 <th class="text-center">Crear/Editar (Escritura)</th>
+                                <th class="text-center">Eliminar</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -217,6 +219,7 @@
                                     ['id' => 'estatus',          'nombre' => 'Status',            'has_edit' => false],
                                     ['id' => 'pagos',            'nombre' => 'Pagos',             'has_edit' => true],
                                     ['id' => 'niveles',          'nombre' => 'Niveles',           'has_edit' => true],
+                                    ['id' => 'biblioteca',       'nombre' => 'Biblioteca',        'has_edit' => true, 'has_delete' => true],
                                 ];
                             @endphp
                             @foreach($modulos as $mod)
@@ -236,6 +239,16 @@
                                             </label>
                                         @else
                                             <span style="color:var(--texto-suave);font-size:0.8rem;">N/A</span>
+                                        @endif
+                                    </td>
+                                    <td class="text-center">
+                                        @if($mod['has_delete'] ?? false)
+                                            <label class="custom-checkbox-container">
+                                                <input type="checkbox" name="{{ $mod['id'] }}_eliminar" id="perm-{{ $mod['id'] }}-eliminar" value="1">
+                                                <span class="checkmark"></span>
+                                            </label>
+                                        @else
+                                            <span style="color:var(--texto-suave);font-size:0.8rem;" title="Eliminar = Crear/Editar con rol administrativo">—</span>
                                         @endif
                                     </td>
                                 </tr>

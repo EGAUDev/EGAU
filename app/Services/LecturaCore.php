@@ -33,6 +33,7 @@ class LecturaCore
         'extracurriculares_ver' => 'extraescolar.ver', 'extracurriculares_edit' => 'extraescolar.editar',
         'estatus_ver' => 'estatus.ver', 'pagos_ver' => 'cargo.ver', 'pagos_edit' => 'cargo.editar',
         'niveles_ver' => 'nivel.ver', 'niveles_edit' => 'nivel.editar',
+        'biblioteca_ver' => 'biblioteca.ver', 'biblioteca_edit' => 'biblioteca.editar', 'biblioteca_eliminar' => 'biblioteca.eliminar',
     ];
 
     /**

@@ -111,10 +111,12 @@
             </li>
         @endif
 
-        {{-- Biblioteca: visible para todo el personal, sin depender de permisos --}}
+        {{-- Biblioteca: con permiso biblioteca.ver (los profesores la ven siempre) --}}
+        @if($esProfesor || ($permisos->biblioteca_ver ?? false))
         <li class="nav-item" data-section="biblioteca">
             <a href="#"><i class="ri-book-shelf-line"></i><span>Biblioteca</span></a>
         </li>
+        @endif
     </ul>
 </nav>
 
@@ -903,7 +905,16 @@
         </div>
 
         {{-- ===================== BIBLIOTECA VIRTUAL ===================== --}}
-        @include('admin.biblioteca')
+        <script>
+            window.PERMISOS_BIBLIOTECA = {
+                ver:      {{ ($esProfesor || ($permisos->biblioteca_ver ?? false)) ? 'true' : 'false' }},
+                edit:     {{ ($permisos->biblioteca_edit ?? false) ? 'true' : 'false' }},
+                eliminar: {{ ($permisos->biblioteca_eliminar ?? false) ? 'true' : 'false' }}
+            };
+        </script>
+        @if($esProfesor || ($permisos->biblioteca_ver ?? false))
+            @include('admin.biblioteca')
+        @endif
 
         <section class="section-content" id="section-opciones" style="display: none;">
             @include('admin.partials.configuracion')
@@ -941,7 +952,6 @@
     <!-- JS Sección Roles -->
     <script src="{{ asset('animaciones/admin/dashboardAdminRoles.js') }}?v={{ time() }}"></script>
     <!-- JS Sección Biblioteca (datos de prueba + vistas) -->
-    <script src="{{ asset('animaciones/admin/dashboardAdminBibliotecaDatos.js') }}?v={{ time() }}"></script>
     <script src="{{ asset('animaciones/admin/dashboardAdminBiblioteca.js') }}?v={{ time() }}"></script>
     <!-- JS Sección Configuración -->
     <script src="{{ asset('animaciones/admin/dashboardAdminPerfil.js') }}?v={{ time() }}"></script>

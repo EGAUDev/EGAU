@@ -34,6 +34,9 @@ class EscrituraCore
         'pagos_edit'             => ['cargo.editar'],
         'niveles_ver'            => ['nivel.ver'],
         'niveles_edit'           => ['nivel.editar'],
+        'biblioteca_ver'         => ['biblioteca.ver'],
+        'biblioteca_edit'        => ['biblioteca.editar', 'biblioteca.publicar'],
+        'biblioteca_eliminar'    => ['biblioteca.eliminar'],
     ];
 
     private const PREFIJO_CODIGO = ['alumno' => 'A', 'profesor' => 'P', 'personal' => 'E'];

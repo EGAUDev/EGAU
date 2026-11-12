@@ -1,5 +1,5 @@
 {{-- ===================== SECCIÓN: BIBLIOTECA VIRTUAL (SCRUM-18) ===================== --}}
-{{-- Visible para todo el personal, sin depender de permisos. --}}
+{{-- Visible con el permiso biblioteca.ver; la gestión pide biblioteca.editar (SCRUM-46). --}}
 {{-- El contenido lo pinta public/animaciones/admin/dashboardAdminBiblioteca.js --}}
 <section class="section-content" id="section-biblioteca" style="display: none;">
 
@@ -66,14 +66,19 @@
 
     {{-- ─────────────── PARTIDAS ─────────────── --}}
     <div class="bib-vista" data-vista="partidas" style="display: none;">
-        <p class="bib-descripcion">Base de datos de partidas comentadas clasificadas por nivel y apertura.</p>
+        <p class="bib-descripcion">Partidas comentadas y las aperturas ECO de Lichess, con visor de jugadas.</p>
         <div class="bib-filtros">
             <div class="bib-buscador">
                 <i class="ri-search-line"></i>
                 <input type="text" id="bib-partidas-buscar" placeholder="Buscar por jugador, apertura o ECO..." autocomplete="off">
             </div>
+            <select id="bib-partidas-tipo" class="bib-select">
+                <option value="partida">Partidas comentadas</option>
+                <option value="apertura">Aperturas (ECO)</option>
+            </select>
             <select id="bib-partidas-nivel" class="bib-select"><option value="">Todos los niveles</option></select>
         </div>
+        <p class="bib-conteo" id="bib-partidas-conteo"></p>
         <div class="bib-tabla-wrap">
             <table class="bib-tabla">
                 <thead>
@@ -85,6 +90,7 @@
                 <tbody id="bib-partidas-tbody"></tbody>
             </table>
         </div>
+        <div class="bib-paginacion" id="bib-partidas-paginacion"></div>
     </div>
 
     {{-- ─────────────── VISOR DE PARTIDA ─────────────── --}}
@@ -170,6 +176,7 @@
                 <tbody id="bib-gestion-tbody"></tbody>
             </table>
         </div>
+        <div class="bib-paginacion" id="bib-gestion-paginacion"></div>
     </div>
 </section>
 
@@ -203,7 +210,7 @@
                     <select name="tipo" id="bib-form-tipo"><option value="">Seleccionar tipo</option></select>
                 </label>
                 <label class="bib-campo">
-                    <span>Nivel *</span>
+                    <span>Nivel mínimo</span>
                     <select name="nivel" id="bib-form-nivel"><option value="">Seleccionar nivel</option></select>
                 </label>
                 <label class="bib-campo bib-campo-ancho">
@@ -212,10 +219,16 @@
                 </label>
 
                 <div class="bib-campo bib-campo-ancho" id="bib-bloque-archivo">
-                    <span>Archivo (PDF, imagen o PGN)</span>
+                    <span>Archivo (PDF, EPUB, MP4, WEBM o PGN)</span>
                     <div class="bib-zona-archivo" id="bib-zona-archivo"></div>
-                    <input type="file" id="bib-form-archivo" accept=".pdf,.pgn,.png,.jpg,.jpeg" hidden>
+                    <input type="file" id="bib-form-archivo" accept=".pdf,.epub,.mp4,.webm,.pgn" hidden>
                 </div>
+
+                <label class="bib-campo bib-campo-ancho" id="bib-bloque-pgn" style="display: none;">
+                    <span>PGN de la partida (se revisa que todas las jugadas sean legales)</span>
+                    <textarea name="pgn" rows="6" class="bib-sha" placeholder='[White "Morphy"]&#10;1. e4 e5 2. Cf3 d6 ...  (inglés o español)'></textarea>
+                    <small id="bib-pgn-estado" class="bib-texto-suave"></small>
+                </label>
 
                 <label class="bib-campo bib-campo-ancho" id="bib-bloque-video" style="display: none;">
                     <span>Enlace del video</span>

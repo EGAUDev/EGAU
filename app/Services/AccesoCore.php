@@ -36,6 +36,9 @@ class AccesoCore
         'pagos_edit'             => 'cargo.editar',
         'niveles_ver'            => 'nivel.ver',
         'niveles_edit'           => 'nivel.editar',
+        'biblioteca_ver'         => 'biblioteca.ver',
+        'biblioteca_edit'        => 'biblioteca.editar',
+        'biblioteca_eliminar'    => 'biblioteca.eliminar',
     ];
 
     public static function buscarUsuario(string $login): ?object

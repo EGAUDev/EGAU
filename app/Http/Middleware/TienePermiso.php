@@ -20,7 +20,7 @@ use Illuminate\Http\Request;
 class TienePermiso
 {
     // Los profesores no tienen roles en v2.2; ven lo mismo que ya les mostraba el dashboard
-    private const PERMISOS_PROFESOR = ['grupo.ver', 'nivel.ver'];
+    private const PERMISOS_PROFESOR = ['grupo.ver', 'nivel.ver', 'biblioteca.ver'];
 
     private const TIPOS_USUARIO = ['alumno', 'profesor', 'personal'];
 
