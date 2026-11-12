@@ -17,24 +17,12 @@
     </div>
 
     <div class="profesores-grid" id="grid-profesores">
-        @foreach($profesores as $pr)
-        <div class="profesor-card" data-nombre="{{ $pr->nombre }} {{ $pr->apellido_p }}" data-email="{{ $pr->email }}">
-            <div class="profesor-card-body">
-                <h3 class="profesor-nombre">{{ $pr->nombre }} {{ $pr->apellido_p }}</h3>
-                <div class="profesor-info">
-                    <span><i class="ri-mail-line"></i> {{ $pr->email }}</span>
-                    <span><i class="ri-phone-line"></i> {{ $pr->telefono ?? 'N/A' }}</span>
-                </div>
-            </div>
-            <div class="profesor-card-footer">
-                <button class="btn-profesor-ver" title="Ver" data-id="{{ $pr->id_profesor }}" data-info="{{ json_encode($pr) }}"><i class="ri-eye-line"></i> Ver</button>
-                <button class="btn-profesor-editar" data-id="{{ $pr->id_profesor }}" data-info="{{ json_encode($pr) }}"><i class="ri-edit-line"></i> Editar</button>
-                <button class="btn-profesor-eliminar" data-id="{{ $pr->id_profesor }}"><i class="ri-delete-bin-line"></i></button>
-            </div>
-        </div>
-        @endforeach
     </div>
     <p class="profesores-empty" id="profesores-empty" style="display:none;">No se encontraron profesores.</p>
+    <div class="pagination">
+        <div class="pagination-info" id="profesores-pag-info">Cargando…</div>
+        <div class="pagination-btns" id="profesores-pag-btns"></div>
+    </div>
 
 </section>
 

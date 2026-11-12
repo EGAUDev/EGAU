@@ -85,7 +85,7 @@
             buscador.addEventListener('input', () => {
                 clearTimeout(t);
                 t = setTimeout(() => {
-                    state.filtros.q = buscador.value.trim().toLowerCase();
+                    state.filtros.q = buscador.value.trim();
                     state.paginaActual = 1;
                     renderTabla();
                     renderPaginacion();
@@ -133,10 +133,8 @@
     // ── Renderizado tabla ────────────────────────────────────
     function rolesFiltrados() {
         return state.roles.filter(r => {
-            if (state.filtros.q) {
-                const q = state.filtros.q;
-                if (!(`${r.id_rol} ${r.nombre} ${r.descripcion}`.toLowerCase().includes(q))) return false;
-            }
+            // Son pocos roles: se filtran aquí, sin acentos y palabra por palabra
+            if (state.filtros.q && !window.EgauBuscador.coincide(`${r.id_rol} ${r.nombre} ${r.descripcion ?? ''}`, state.filtros.q)) return false;
             if (state.filtros.estatus) {
                 const esActivo = r.estatus == true || r.estatus == 'true' || r.estatus == 1;
                 if (state.filtros.estatus === 'activo' && !esActivo) return false;

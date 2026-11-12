@@ -5,7 +5,9 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use App\Services\Buscador;
 use App\Services\LecturaCore;
+use App\Services\Niveles;
 use App\Services\EscrituraCore;
 
 class NivelesController extends Controller
@@ -78,22 +80,25 @@ if ($tipo === 'profesor' && $idProfesor) {
             $query->where('grupo.id_grupo', (int) $idGrupo);
         }
 
-        // ── Filtro búsqueda texto ───────────────────────────
-        if ($q !== '') {
-            $ql = '%' . mb_strtolower($q) . '%';
-            $query->where(function ($sub) use ($ql) {
-                $sub->whereRaw("LOWER(CONCAT(alumno.nombre, ' ', alumno.apellido_p)) LIKE ?", [$ql])
-                    ->orWhereRaw("LOWER(alumno.nombre) LIKE ?", [$ql])
-                    ->orWhereRaw("LOWER(alumno.apellido_p) LIKE ?", [$ql]);
-            });
+        // ── Filtro búsqueda texto (cada palabra en nombre o apellidos, sin acentos) ──
+        Buscador::filtrar($query, $q, ['alumno.nombre', 'alumno.apellido_p', 'alumno.apellido_m']);
+
+        // ── Filtro por nivel (1-6), en la consulta con los rangos de academico.nivel ──
+        if ($nivel !== '' && ($n = Niveles::buscar($nivel))) {
+            Niveles::dentro($query, 'alumno.puntaje', $n);
         }
 
-        $alumnos = $query->get();
+        // ── Estadísticas sobre todo el resultado (no solo la página) ──
+        $puntajes = (clone $query)->pluck('alumno.puntaje')->map(fn($p) => (int) ($p ?? 0));
+        $total    = $puntajes->count();
+        $promPts  = $total > 0 ? round($puntajes->avg(), 1) : 0;
+        $promNiv  = $total > 0 ? round($puntajes->avg(fn($p) => Niveles::dePuntaje($p)['numero']), 1) : 0;
 
-        // ── Calcular nivel en PHP (misma lógica que JS) ─────
+        [$alumnos, $meta] = Buscador::obtener($query, $request);
+
         $resultado = $alumnos->map(function ($a) {
             $puntos = (int) ($a->puntaje ?? 0);
-            $rango  = $this->calcularRango($puntos);
+            $rango  = Niveles::dePuntaje($puntos);
 
             return [
                 'id_alumno'    => $a->id_alumno,
@@ -109,18 +114,9 @@ if ($tipo === 'profesor' && $idProfesor) {
             ];
         });
 
-        // ── Filtro por nivel (post-map) ─────────────────────
-        if ($nivel !== '' && is_numeric($nivel)) {
-            $resultado = $resultado->filter(fn($a) => $a['nivel_num'] == (int) $nivel)->values();
-        }
-
-        // ── Estadísticas ────────────────────────────────────
-        $total   = $resultado->count();
-        $promPts = $total > 0 ? round($resultado->avg('puntaje'), 1) : 0;
-        $promNiv = $total > 0 ? round($resultado->avg('nivel_num'), 1) : 0;
-
         return response()->json([
             'data'  => $resultado,
+            'meta'  => $meta,
             'stats' => [
                 'total'       => $total,
                 'prom_puntos' => $promPts,
@@ -198,7 +194,7 @@ return response()->json(['data' => $grupos]);
         DB::transaction(fn () => EscrituraCore::puntaje((int) $id, $nuevoPuntaje, 'Ajuste de puntaje (' . $request->operacion . ' ' . $cantidad . ')'));
         $nuevoPuntaje = (int) DB::table('core.persona')->where('id', (int) $id)->value('rating');   // v2.2 topa el rating
 
-        $rango = $this->calcularRango($nuevoPuntaje);
+        $rango = Niveles::dePuntaje($nuevoPuntaje);
 
         return response()->json([
             'message'      => 'Puntaje actualizado correctamente.',
@@ -207,18 +203,5 @@ return response()->json(['data' => $grupos]);
             'nivel_nombre' => $rango['nombre'],
             'nivel_emoji'  => $rango['emoji'],
         ]);
-    }
-
-    // -------------------------------------------------------
-    // Misma lógica que calcularRango() en el JS del alumno
-    // -------------------------------------------------------
-    private function calcularRango(int $puntos): array
-    {
-        if ($puntos >= 3000) return ['numero' => 6, 'nombre' => 'Rey',     'emoji' => '♚'];
-        if ($puntos >= 1500) return ['numero' => 5, 'nombre' => 'Reina',   'emoji' => '♛'];
-        if ($puntos >= 800)  return ['numero' => 4, 'nombre' => 'Torre',   'emoji' => '♜'];
-        if ($puntos >= 400)  return ['numero' => 3, 'nombre' => 'Alfil',   'emoji' => '♝'];
-        if ($puntos >= 150)  return ['numero' => 2, 'nombre' => 'Caballo', 'emoji' => '♞'];
-        return                      ['numero' => 1, 'nombre' => 'Peón',    'emoji' => '♟'];
     }
 }

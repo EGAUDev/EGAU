@@ -8,9 +8,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const CSRF = document.querySelector('meta[name="csrf-token"]')?.content || '';
     const tbody = document.querySelector('#tabla-sedes tbody');
-    const infoEl = document.querySelector('#section-sede .pagination-info');
 
     // ── Render fila ──────────────────────────────────────────────────
+    const H = window.EgauBuscador.html;
     const renderFila = (s) => {
         const permisos = window.PERMISOS_SEDES || { ver: true, edit: true, admin: true };
         const btnEditar = permisos.edit
@@ -22,10 +22,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return `<tr>
         <td>${s.id}</td>
-        <td>${s.nombre}</td>
-        <td>${s.calle || '—'}, ${s.ciudad || '—'}</td>
-        <td>${s.telefono || '—'}</td>
-        <td>${s.estado_residencia || '—'}</td>
+        <td>${H(s.nombre)}</td>
+        <td>${H(s.calle || '—')}, ${H(s.ciudad || '—')}</td>
+        <td>${H(s.telefono || '—')}</td>
+        <td>${H(s.estado_residencia || '—')}</td>
         <td class="acciones">
             <button class="btn-icon btn-ver btn-ver-sede" title="Ver" data-id="${s.id}"><i class="ri-eye-line"></i></button>
             ${btnEditar}
@@ -34,47 +34,23 @@ document.addEventListener('DOMContentLoaded', () => {
     </tr>`;
     };
 
-    // ── Buscar backend con AbortController ────────────────────────────
-    let fetchActivo = null;
-    const buscarSedes = () => {
-        if (fetchActivo) fetchActivo.abort();
-        const controller = new AbortController();
-        fetchActivo = controller;
-
-        const q = document.getElementById('buscador-sedes')?.value.trim() || '';
-        const estado = document.querySelector('#dropdown-filtro-estado-sede .selected-text')
-            ?.getAttribute('data-value') || '';
-
-        const params = new URLSearchParams({ q, estado_residencia: estado });
-
-        fetch(`/admin/buscar/sedes?${params}`, {
-            credentials: 'same-origin',
-            headers: { 'Accept': 'application/json' },
-            signal: controller.signal
-        })
-            .then(r => r.json())
-            .then(res => {
-                fetchActivo = null;
-                if (!tbody) return;
-                if (res.error) { console.error(res.error); return; }
-                tbody.innerHTML = res.data.map(renderFila).join('');
-                if (infoEl) infoEl.textContent = `Mostrando ${res.total} resultado${res.total !== 1 ? 's' : ''}`;
-            })
-            .catch(err => {
-                if (err.name === 'AbortError') return;
-                console.error('Error al buscar sedes:', err);
-            });
-    };
+    // ── Búsqueda en el servidor (debounce, cancela la anterior, paginada) ──
+    const busqueda = window.EgauBuscador.crear({
+        url: '/admin/buscar/sedes',
+        entrada: document.getElementById('buscador-sedes'),
+        palabra: 'sede',
+        info: document.getElementById('sedes-pag-info'),
+        botones: document.getElementById('sedes-pag-btns'),
+        params: () => ({
+            q: document.getElementById('buscador-sedes')?.value.trim() || '',
+            estado_residencia: document.querySelector('#dropdown-filtro-estado-sede .selected-text')?.getAttribute('data-value') || '',
+        }),
+        alRecibir: (res) => { if (tbody) tbody.innerHTML = res.data.map(renderFila).join(''); },
+    });
+    const buscarSedes = () => busqueda.reiniciar();
+    const recargarSedes = () => busqueda.cargar();   // misma página, después de guardar o eliminar
 
     buscarSedes();
-
-    // ── Buscador input con debounce ───────────────────────────────────
-    let debounceTimer = null;
-    document.getElementById('buscador-sedes')
-        ?.addEventListener('input', () => {
-            clearTimeout(debounceTimer);
-            debounceTimer = setTimeout(buscarSedes, 350);
-        });
 
     // ── Filtro estado ─────────────────────────────────────────────────
     const ddFiltroEstado = document.getElementById('dropdown-filtro-estado-sede');
@@ -306,7 +282,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     .then(data => {
                         alert(data.message || 'Sede guardada correctamente');
                         cerrarModal();
-                        buscarSedes();
+                        recargarSedes();
                     })
                     .catch(err => {
                         alert('No se pudo guardar la sede:\n' + (err.message || JSON.stringify(err)));
@@ -396,7 +372,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     .then(res => res.json())
                     .then(data => {
                         if (data.error) alert(data.error);
-                        else { alert(data.message); buscarSedes(); }
+                        else { alert(data.message); recargarSedes(); }
                     })
                     .catch(err => alert('Error: ' + err));
             }

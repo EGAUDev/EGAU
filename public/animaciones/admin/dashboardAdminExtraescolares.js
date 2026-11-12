@@ -25,18 +25,15 @@
         bindModalEditar();
     }
 
-    // ── Buscador ─────────────────────────────────────────────
+    // ── Buscador: la búsqueda se hace en el servidor (sin acentos, palabra por palabra) ──
+    let busqueda = null;
     function bindBuscador() {
         const buscador = $('buscador-extraescolares');
         if (!buscador) return;
-        let t;
-        buscador.addEventListener('input', () => {
-            clearTimeout(t);
-            t = setTimeout(() => {
-                state.q = buscador.value.trim().toLowerCase();
-                renderGrid();
-            }, 300);
-        });
+        buscador.addEventListener('input', window.EgauBuscador.debounce(() => {
+            state.q = buscador.value.trim();
+            cargarActividades();
+        }, 350));
     }
 
     // ── Carga de datos ───────────────────────────────────────
@@ -44,16 +41,22 @@
         const loading = $('extraescolares-loading');
         if (loading) loading.style.display = 'block';
 
-        fetch(`/admin/extraescolares`, { headers: { Accept: 'application/json', 'X-CSRF-TOKEN': CSRF } })
-            .then(r => r.json())
-            .then(json => {
-                state.actividades = json.data || [];
-                if (loading) loading.style.display = 'none';
-                renderGrid();
-            })
-            .catch(() => {
-                if (loading) loading.innerHTML = '<p style="color:#c0392b;">Error al cargar actividades.</p>';
+        if (!busqueda) {
+            busqueda = window.EgauBuscador.crear({
+                url: '/admin/extraescolares',
+                porPagina: null,
+                params: () => ({ q: state.q }),
+                alRecibir: (json) => {
+                    state.actividades = json.data || [];
+                    if (loading) loading.style.display = 'none';
+                    renderGrid();
+                },
+                alFallar: () => {
+                    if (loading) loading.innerHTML = '<p style="color:#c0392b;">Error al cargar actividades.</p>';
+                },
             });
+        }
+        busqueda.cargar();
     }
 
     // ── Renderizado del grid ─────────────────────────────────
@@ -62,12 +65,7 @@
         const empty = $('extraescolares-empty');
         if (!grid) return;
 
-        const filtradas = state.actividades.filter(a => {
-            if (!state.q) return true;
-            return (a.nombre || '').toLowerCase().includes(state.q)
-                || (a.ubicacion || '').toLowerCase().includes(state.q)
-                || (a.descripcion || '').toLowerCase().includes(state.q);
-        });
+        const filtradas = state.actividades;   // ya vienen filtradas del servidor
 
         if (filtradas.length === 0) {
             grid.innerHTML = '';

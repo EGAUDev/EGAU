@@ -189,15 +189,17 @@
 
 </div>
 
+<script src="{{ asset('animaciones/comun/buscador.js') }}"></script>
 <script>
+// Los alumnos de un grupo ya están en la página: se filtran aquí, sin acentos y palabra por palabra
 const buscador = document.getElementById('buscador-alumnos');
 if (buscador) {
     buscador.addEventListener('input', function () {
-        const q = this.value.toLowerCase().trim();
+        const q = this.value.trim();
         const filas = document.querySelectorAll('#tbody-alumnos .fila-alumno');
         let visibles = 0;
         filas.forEach(fila => {
-            const coincide = !q || fila.textContent.toLowerCase().includes(q);
+            const coincide = !q || window.EgauBuscador.coincide(fila.textContent, q);
             fila.style.display = coincide ? '' : 'none';
             if (coincide) visibles++;
         });

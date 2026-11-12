@@ -11,7 +11,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnLimpiar = document.getElementById('btn-limpiar-personal');
     const tabla = document.getElementById('tabla-personal');
     const tbody = tabla ? tabla.querySelector('tbody') : null;
-    const infoEl = document.querySelector('#section-personal .pagination-info');
 
     // Genera HTML de una fila de personal desde el JSON del backend
     const renderFila = (r) => {
@@ -31,9 +30,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return `<tr>
             <td>${r.id}</td>
-            <td>${r.nombre}</td>
-            <td>${rolTxt}</td>
-            <td>${sedeTxt}</td>
+            <td>${window.EgauBuscador.html(r.nombre)}</td>
+            <td>${window.EgauBuscador.html(rolTxt)}</td>
+            <td>${window.EgauBuscador.html(sedeTxt)}</td>
             <td>${estatusBadge}</td>
             <td class="acciones">
                 <button class="btn-icon btn-ver btn-ver-personal" title="Ver" data-id="${r.id}" data-info="${infoEsc}"><i class="ri-eye-line"></i></button>
@@ -44,50 +43,25 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
 
-    let fetchActivoPe = null;
-    const buscarBackend = window.buscarPersonalBackend = () => {
-        if (fetchActivoPe) fetchActivoPe.abort();
-        const controller = new AbortController();
-        fetchActivoPe = controller;
-
-        const q = buscador ? buscador.value.trim().toLowerCase() : '';
-        const idRol = document.querySelector('#dropdown-nivel-personal .selected-text')?.getAttribute('data-value') || '';
-        const idSede = document.querySelector('#dropdown-sede-personal .selected-text')?.getAttribute('data-value') || '';
-        const status = document.querySelector('#dropdown-status-personal .selected-text')?.getAttribute('data-value') || '';
-
-        const params = new URLSearchParams({ q, id_rol: idRol, id_sede: idSede, estatus: status });
-
-        fetch(`/admin/buscar/personal?${params}`, {
-            credentials: 'same-origin',
-            headers: { 'Accept': 'application/json' },
-            signal: controller.signal
-        })
-            .then(r => r.json())
-            .then(res => {
-                fetchActivoPe = null;
-                if (!tbody) return;
-                if (res.error) { console.error(res.error); return; }
-                tbody.innerHTML = res.data.map(renderFila).join('');
-                if (infoEl) infoEl.textContent = `Mostrando ${res.total} resultado${res.total !== 1 ? 's' : ''}`;
-            })
-            .catch(err => {
-                if (err.name === 'AbortError') return;
-                console.error('Error al buscar personal:', err);
-            });
-    };
+    // Búsqueda en el servidor: debounce, cancela la anterior y pagina de 25 en 25
+    const busqueda = window.EgauBuscador.crear({
+        url: '/admin/buscar/personal',
+        entrada: buscador,
+        info: document.getElementById('personal-pag-info'),
+        botones: document.getElementById('personal-pag-btns'),
+        params: () => ({
+            q: buscador ? buscador.value.trim() : '',
+            id_rol: document.querySelector('#dropdown-nivel-personal .selected-text')?.getAttribute('data-value') || '',
+            id_sede: document.querySelector('#dropdown-sede-personal .selected-text')?.getAttribute('data-value') || '',
+            estatus: document.querySelector('#dropdown-status-personal .selected-text')?.getAttribute('data-value') || '',
+        }),
+        alRecibir: (res) => { if (tbody) tbody.innerHTML = res.data.map(renderFila).join(''); },
+    });
+    const buscarBackend = window.buscarPersonalBackend = () => busqueda.reiniciar();
 
     if (tabla) {
         // Cargar al inicio
         buscarBackend();
-
-        // Escuchar input en buscador con debounce
-        if (buscador) {
-            let debounceTimerPe = null;
-            buscador.addEventListener('input', () => {
-                clearTimeout(debounceTimerPe);
-                debounceTimerPe = setTimeout(buscarBackend, 350);
-            });
-        }
 
         // Lógica de los Custom Dropdowns (Específicos de Personal)
         const customDropdowns = document.querySelectorAll('#section-personal .custom-dropdown');

@@ -72,29 +72,31 @@
     }
 
     // ── Carga principal de alumnos ───────────────────────────────────
+    // Paginada en el servidor; las estadísticas (KPIs) vienen calculadas sobre todo el resultado
+    let busqueda = null;
     function cargarAlumnos() {
         mostrarLoading();
-
-        const params = new URLSearchParams();
-        if (state.filtros.id_sede) params.set('id_sede', state.filtros.id_sede);
-        if (state.filtros.id_grupo) params.set('id_grupo', state.filtros.id_grupo);
-        if (state.filtros.nivel) params.set('nivel', state.filtros.nivel);
-        if (state.filtros.q) params.set('q', state.filtros.q);
-
-        fetch(`/admin/niveles/alumnos?${params}`, {
-            headers: { Accept: 'application/json', 'X-CSRF-TOKEN': CSRF }
-        })
-            .then(r => r.json())
-            .then(json => {
-                state.alumnos = json.data || [];
-                actualizarKpis(json.stats || {});
-                renderTabla();
-                renderPaginacion();
-            })
-            .catch(() => {
-                const tbody = $('tbody-niveles');
-                if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c0392b;padding:1.5rem;">Error al cargar los datos.</td></tr>';
+        if (!busqueda) {
+            busqueda = window.EgauBuscador.crear({
+                url: '/admin/niveles/alumnos',
+                porPagina: state.porPagina,
+                palabra: 'estudiante',
+                info: $('niv-pag-info'),
+                botones: $('niv-pag-btns'),
+                params: () => ({ ...state.filtros }),
+                alRecibir: (json) => {
+                    state.alumnos = json.data || [];
+                    state.paginaActual = json.meta?.page ?? 1;
+                    actualizarKpis(json.stats || {});
+                    renderTabla();
+                },
+                alFallar: () => {
+                    const tbody = $('tbody-niveles');
+                    if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#c0392b;padding:1.5rem;">Error al cargar los datos.</td></tr>';
+                },
             });
+        }
+        busqueda.irA(state.paginaActual);
     }
 
     function mostrarLoading() {
@@ -115,8 +117,7 @@
         const tbody = $('tbody-niveles');
         if (!tbody) return;
 
-        const inicio = (state.paginaActual - 1) * state.porPagina;
-        const pagina = state.alumnos.slice(inicio, inicio + state.porPagina);
+        const pagina = state.alumnos;   // el servidor ya manda solo la página actual
         const cols = PERMISOS.edit ? 6 : 5;
 
         if (pagina.length === 0) {
@@ -126,7 +127,10 @@
 
         tbody.innerHTML = pagina.map(a => {
             const puntos = parseInt(a.puntaje) || 0;
-            const rango = calcularRango(puntos);
+            // El nivel viene del servidor (rangos de academico.nivel); calcularRango queda de respaldo
+            const rango = a.nivel_num
+                ? { numero: a.nivel_num, nombre: a.nivel_nombre, emoji: a.nivel_emoji }
+                : calcularRango(puntos);
             const badgeCls = `badge-nivel badge-nivel-${rango.numero}`;
 
             return `
@@ -167,45 +171,6 @@
                 );
             });
         });
-    }
-
-    // ── Paginación ───────────────────────────────────────────────────
-    function renderPaginacion() {
-        const info = $('niv-pag-info');
-        const btns = $('niv-pag-btns');
-        if (!btns) return;
-
-        const total = state.alumnos.length;
-        const paginas = Math.ceil(total / state.porPagina) || 1;
-        if (info) info.textContent = `${total} estudiante${total !== 1 ? 's' : ''}`;
-
-        btns.innerHTML = '';
-
-        const prev = document.createElement('button');
-        prev.className = 'pag-btn';
-        prev.innerHTML = '<i class="ri-arrow-left-s-line"></i>';
-        prev.disabled = state.paginaActual === 1;
-        prev.addEventListener('click', () => {
-            if (state.paginaActual > 1) { state.paginaActual--; renderTabla(); renderPaginacion(); }
-        });
-        btns.appendChild(prev);
-
-        for (let i = 1; i <= paginas; i++) {
-            const b = document.createElement('button');
-            b.className = `pag-btn${i === state.paginaActual ? ' active' : ''}`;
-            b.textContent = i;
-            b.addEventListener('click', () => { state.paginaActual = i; renderTabla(); renderPaginacion(); });
-            btns.appendChild(b);
-        }
-
-        const next = document.createElement('button');
-        next.className = 'pag-btn';
-        next.innerHTML = '<i class="ri-arrow-right-s-line"></i>';
-        next.disabled = state.paginaActual >= paginas;
-        next.addEventListener('click', () => {
-            if (state.paginaActual < paginas) { state.paginaActual++; renderTabla(); renderPaginacion(); }
-        });
-        btns.appendChild(next);
     }
 
     // ── Filtros ──────────────────────────────────────────────────────
@@ -357,23 +322,8 @@
 
                 cerrarModal();
 
-                // Actualizar en el estado local sin recargar toda la tabla
-                const alumno = state.alumnos.find(a => a.id_alumno == state.idAlumnoEditar);
-                if (alumno) {
-                    alumno.puntaje = res.puntaje_nuevo;
-                    alumno.nivel_num = res.nivel_num;
-                    alumno.nivel_nombre = res.nivel_nombre;
-                    alumno.nivel_emoji = res.nivel_emoji;
-                }
-
-                renderTabla();
-                renderPaginacion();
-
-                // Actualizar KPIs recargando stats
-                const total = state.alumnos.length;
-                const promPts = total > 0 ? +(state.alumnos.reduce((s, a) => s + (parseInt(a.puntaje) || 0), 0) / total).toFixed(1) : 0;
-                const promNiv = total > 0 ? +(state.alumnos.reduce((s, a) => s + calcularRango(parseInt(a.puntaje) || 0).numero, 0) / total).toFixed(1) : 0;
-                actualizarKpis({ total, prom_puntos: promPts, prom_nivel: promNiv });
+                // Recargar la página actual: así el nivel, el filtro y los KPIs quedan correctos
+                cargarAlumnos();
             })
             .catch(() => alert('Error de conexión al actualizar el puntaje.'));
     }

@@ -69,37 +69,13 @@
                     </tr>
                 </thead>
                 <tbody>
-                    @foreach($personal as $p)
-                    <tr>
-                        <td>{{ $p->id_personal }}</td>
-                        <td>{{ $p->nombre }} {{ $p->apellido_p }} {{ $p->apellido_m }}</td>
-                        <td>{{ $p->nombre_rol ?? 'Sin rol' }}</td>
-                        <td>{{ $p->ciudad ?? 'Sede Central' }}</td>
-                        <td>
-                            @if($p->estatus)
-                                <span class="badge badge-activo">Activo</span>
-                            @else
-                                <span class="badge badge-inactivo">Inactivo</span>
-                            @endif
-                        </td>
-                        <td class="acciones">
-                            <button class="btn-icon btn-ver btn-ver-personal" title="Ver" data-id="{{ $p->id_personal }}" data-info="{{ json_encode($p) }}"><i class="ri-eye-line"></i></button>
-                            <button class="btn-icon btn-editar btn-editar-personal" title="Editar" data-id="{{ $p->id_personal }}" data-info="{{ json_encode($p) }}"><i class="ri-edit-line"></i></button>
-                            <button class="btn-icon btn-eliminar btn-eliminar-personal" title="Eliminar" data-id="{{ $p->id_personal }}"><i class="ri-delete-bin-line"></i></button>
-                        </td>
-                    </tr>
-                    @endforeach
                 </tbody>
             </table>
         </div>
 
         <div class="pagination">
-            <div class="pagination-info">Mostrando 1 resultado</div>
-            <div class="pagination-btns">
-                <button class="pag-btn" disabled><i class="ri-arrow-left-s-line"></i></button>
-                <button class="pag-btn active">1</button>
-                <button class="pag-btn" disabled><i class="ri-arrow-right-s-line"></i></button>
-            </div>
+            <div class="pagination-info" id="personal-pag-info">Cargando…</div>
+            <div class="pagination-btns" id="personal-pag-btns"></div>
         </div>
 
     </div>

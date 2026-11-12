@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\Buscador;
 use App\Services\LecturaCore;
 use App\Services\EscrituraCore;
 
@@ -62,19 +63,16 @@ class FacturaController extends Controller
         }
 
         // Buscador texto
-        if ($q !== '') {
-            $ql = '%' . strtolower($q) . '%';
-            $query->where(function ($sub) use ($ql) {
-                $sub->whereRaw("LOWER(CONCAT(alumno.nombre, ' ', alumno.apellido_p)) LIKE ?", [$ql])
-                    ->orWhereRaw('LOWER(factura.concepto) LIKE ?', [$ql])
-                    ->orWhereRaw('LOWER(factura.descripcion) LIKE ?', [$ql]);
-                if (is_numeric(trim($ql, '%'))) {
-                    $sub->orWhere('factura.id_factura', (int) trim($ql, '%'));
+        // Cada palabra en el nombre completo del alumno, el concepto o la descripción; o el folio exacto
+        Buscador::filtrar($query, $q,
+            ['alumno.nombre', 'alumno.apellido_p', 'alumno.apellido_m', 'factura.concepto', 'factura.descripcion'],
+            function ($sub, $palabra) {
+                if (ctype_digit($palabra) && strlen($palabra) <= 9) {
+                    $sub->orWhere('factura.id_factura', (int) $palabra);
                 }
             });
-        }
 
-        $facturas = $query->get();
+        [$facturas, $meta] = Buscador::obtener($query, $request);
 
         $data = $facturas->map(function ($f) {
             $tipo = $f->id_inscripcion ? 'grupo' : ($f->id_inscripcionextra ? 'extraescolar' : 'otro');
@@ -92,7 +90,7 @@ class FacturaController extends Controller
             ];
         });
 
-        return response()->json(['total' => $data->count(), 'data' => $data]);
+        return response()->json(['total' => $meta['total'], 'meta' => $meta, 'data' => $data]);
     }
 
     // -------------------------------------------------------

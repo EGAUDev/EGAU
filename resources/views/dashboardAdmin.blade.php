@@ -918,6 +918,8 @@
             @endforeach
         };
     </script>
+    <!-- JS común: búsqueda con debounce, cancelación y paginación -->
+    <script src="{{ asset('animaciones/comun/buscador.js') }}?v={{ time() }}"></script>
     <!-- JS General -->
     <script src="{{ asset('animaciones/admin/dashboardAdmin.js') }}?v={{ time() }}"></script>
     <!-- JS Sección Personal -->

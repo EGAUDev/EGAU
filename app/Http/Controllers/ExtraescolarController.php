@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
+use App\Services\Buscador;
 use App\Services\LecturaCore;
 use App\Services\EscrituraCore;
 
@@ -24,18 +25,11 @@ class ExtraescolarController extends Controller
             )
             ->orderBy('extraescolar.id_extraescolar', 'desc');
 
-        if ($q !== '') {
-            $ql = '%' . strtolower($q) . '%';
-            $query->where(function ($sub) use ($ql) {
-                $sub->whereRaw('LOWER(extraescolar.nombre) LIKE ?', [$ql])
-                    ->orWhereRaw('LOWER(extraescolar.ubicacion) LIKE ?', [$ql])
-                    ->orWhereRaw('LOWER(extraescolar.descripcion) LIKE ?', [$ql]);
-            });
-        }
+        Buscador::filtrar($query, $q, ['extraescolar.nombre', 'extraescolar.ubicacion', 'extraescolar.descripcion']);
 
-        $actividades = $query->get();
+        [$actividades, $meta] = Buscador::obtener($query, $request);
 
-        return response()->json(['total' => $actividades->count(), 'data' => $actividades]);
+        return response()->json(['total' => $meta['total'], 'meta' => $meta, 'data' => $actividades]);
     }
 
     // -------------------------------------------------------

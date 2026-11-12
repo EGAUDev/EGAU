@@ -23,55 +23,45 @@ document.addEventListener('DOMContentLoaded', () => {
     // CARGA INICIAL Y BÚSQUEDA
     // ==========================================
 
-    const cargarGrupos = async (q = '') => {
-        try {
-            const idProfesor = window.ID_PROFESOR;
-            let url = '/admin/grupos/buscar';
-            const params = new URLSearchParams();
-            if (q) params.set('q', q);
-            if (idProfesor) params.set('id_profesor', idProfesor);
-            if (params.toString()) url += '?' + params.toString();
-
-            const resp = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const result = await resp.json();
-
+    // Grupos y cursos son catálogos chicos: se traen completos, pero con el buscador común
+    // (si llega una búsqueda nueva, la anterior se cancela y no pisa los resultados)
+    let qGrupos = '';
+    const busquedaGrupos = window.EgauBuscador.crear({
+        url: '/admin/grupos/buscar',
+        porPagina: null,
+        params: () => ({ q: qGrupos, id_profesor: window.ID_PROFESOR || '' }),
+        alRecibir: (result) => {
             if (gridGrupos) gridGrupos.innerHTML = '';
-
             if (result.data && result.data.length > 0) {
                 if (msgEmptyGrupos) msgEmptyGrupos.style.display = 'none';
-                result.data.forEach(grupo => {
-                    renderGrupoCard(grupo);
-                });
-            } else {
-                if (msgEmptyGrupos) msgEmptyGrupos.style.display = 'block';
+                result.data.forEach(grupo => renderGrupoCard(grupo));
+            } else if (msgEmptyGrupos) {
+                msgEmptyGrupos.style.display = 'block';
             }
-        } catch (error) {
-            console.error("Error al cargar grupos:", error);
-        }
+        },
+    });
+    const cargarGrupos = (q) => {
+        if (q !== undefined) qGrupos = q;
+        return busquedaGrupos.cargar();
     };
 
-    const cargarCursos = async (q = '') => {
-        try {
-            const url = q ? `/admin/cursos/buscar?q=${encodeURIComponent(q)}` : '/admin/cursos/buscar';
-            const resp = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            const result = await resp.json();
-
+    let qCursos = '';
+    const busquedaCursos = window.EgauBuscador.crear({
+        url: '/admin/cursos/buscar',
+        porPagina: null,
+        params: () => ({ q: qCursos }),
+        alRecibir: (result) => {
             if (tbodyCursos) tbodyCursos.innerHTML = '';
-
             if (result.data && result.data.length > 0) {
-                result.data.forEach(curso => {
-                    renderCursoRow(curso);
-                });
-            } else {
-                if (tbodyCursos) tbodyCursos.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:16px;">No se encontraron cursos.</td></tr>';
+                result.data.forEach(curso => renderCursoRow(curso));
+            } else if (tbodyCursos) {
+                tbodyCursos.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:16px;">No se encontraron cursos.</td></tr>';
             }
-        } catch (error) {
-            console.error("Error al cargar cursos:", error);
-        }
+        },
+    });
+    const cargarCursos = (q) => {
+        if (q !== undefined) qCursos = q;
+        return busquedaCursos.cargar();
     };
 
     // ==========================================

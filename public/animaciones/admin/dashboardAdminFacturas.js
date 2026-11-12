@@ -90,7 +90,7 @@
 
     function aplicarFiltros() {
         const buscador = $('buscador-facturas');
-        state.filtros.q = buscador ? buscador.value.trim().toLowerCase() : '';
+        state.filtros.q = buscador ? buscador.value.trim() : '';
 
         const ddSede = $('dropdown-factura-sede');
         if (ddSede) state.filtros.id_sede = el('.selected-text', ddSede)?.dataset.value || '';
@@ -124,28 +124,29 @@
         cargarFacturas();
     }
 
-    // ── Carga de datos ───────────────────────────────────────
+    // ── Carga de datos (paginada en el servidor) ─────────────
+    let busqueda = null;
     function cargarFacturas() {
         mostrarLoading();
-
-        const params = new URLSearchParams();
-        if (state.filtros.id_sede)  params.set('id_sede',  state.filtros.id_sede);
-        if (state.filtros.vigencia) params.set('vigencia', state.filtros.vigencia);
-        if (state.filtros.tipo)     params.set('tipo',     state.filtros.tipo);
-        if (state.filtros.q)        params.set('q',        state.filtros.q);
-
-        fetch(`/admin/facturas?${params.toString()}`, {
-            headers: { 'Accept': 'application/json', 'X-CSRF-TOKEN': CSRF }
-        })
-        .then(r => r.json())
-        .then(json => {
-            state.facturas = json.data || [];
-            renderTabla();
-            renderPaginacion();
-        })
-        .catch(() => {
-            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#c0392b;padding:1.5rem;">Error al cargar las facturas.</td></tr>';
-        });
+        if (!busqueda) {
+            busqueda = window.EgauBuscador.crear({
+                url: '/admin/facturas',
+                porPagina: state.porPagina,
+                palabra: 'factura',
+                info: paginaInfo,
+                botones: paginaBtns,
+                params: () => ({ ...state.filtros }),
+                alRecibir: (json) => {
+                    state.facturas = json.data || [];
+                    state.paginaActual = json.meta?.page ?? 1;
+                    renderTabla();
+                },
+                alFallar: () => {
+                    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#c0392b;padding:1.5rem;">Error al cargar las facturas.</td></tr>';
+                },
+            });
+        }
+        busqueda.irA(state.paginaActual);
     }
 
     function mostrarLoading() {
@@ -159,8 +160,7 @@
 
     // ── Renderizado de tabla ─────────────────────────────────
     function renderTabla() {
-        const inicio = (state.paginaActual - 1) * state.porPagina;
-        const pagina = state.facturas.slice(inicio, inicio + state.porPagina);
+        const pagina = state.facturas;   // el servidor ya manda solo la página actual
 
         if (pagina.length === 0) {
             tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:2rem;color:var(--texto-suave);">No se encontraron facturas.</td></tr>';
@@ -221,39 +221,6 @@
         if (t === 'grupo')        return `<span class="badge badge-tipo-grupo">Grupo</span>`;
         if (t === 'extraescolar') return `<span class="badge badge-tipo-extraescolar">Extraescolar</span>`;
         return `<span class="badge">—</span>`;
-    }
-
-    // ── Paginación ───────────────────────────────────────────
-    function renderPaginacion() {
-        const total   = state.facturas.length;
-        const paginas = Math.ceil(total / state.porPagina);
-
-        if (paginaInfo) paginaInfo.textContent = `${total} factura${total !== 1 ? 's' : ''}`;
-
-        if (!paginaBtns) return;
-        paginaBtns.innerHTML = '';
-
-        const prev = document.createElement('button');
-        prev.className = 'pag-btn';
-        prev.innerHTML = '<i class="ri-arrow-left-s-line"></i>';
-        prev.disabled = state.paginaActual === 1;
-        prev.addEventListener('click', () => { if (state.paginaActual > 1) { state.paginaActual--; renderTabla(); renderPaginacion(); } });
-        paginaBtns.appendChild(prev);
-
-        for (let i = 1; i <= paginas; i++) {
-            const btn = document.createElement('button');
-            btn.className = `pag-btn${i === state.paginaActual ? ' active' : ''}`;
-            btn.textContent = i;
-            btn.addEventListener('click', () => { state.paginaActual = i; renderTabla(); renderPaginacion(); });
-            paginaBtns.appendChild(btn);
-        }
-
-        const next = document.createElement('button');
-        next.className = 'pag-btn';
-        next.innerHTML = '<i class="ri-arrow-right-s-line"></i>';
-        next.disabled = state.paginaActual === paginas || paginas === 0;
-        next.addEventListener('click', () => { if (state.paginaActual < paginas) { state.paginaActual++; renderTabla(); renderPaginacion(); } });
-        paginaBtns.appendChild(next);
     }
 
     // ── Detalle de factura ───────────────────────────────────

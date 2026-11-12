@@ -95,11 +95,8 @@
 
         <!-- Paginación -->
         <div class="pagination">
-            <div class="pagination-btns">
-                <button class="pag-btn" disabled><i class="ri-arrow-left-s-line"></i></button>
-                <button class="pag-btn active">1</button>
-                <button class="pag-btn"><i class="ri-arrow-right-s-line"></i></button>
-            </div>
+            <div class="pagination-info" id="alumnos-pag-info">Cargando…</div>
+            <div class="pagination-btns" id="alumnos-pag-btns"></div>
         </div>
 
     </div><!-- /card -->

@@ -11,7 +11,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const btnLimpiar = document.getElementById('btn-limpiar');
     const tabla = document.getElementById('tabla-alumnos');
     const tbody = tabla ? tabla.querySelector('tbody') : null;
-    const info = document.querySelector('.pagination-info');
 
     const calcNivel = (puntaje) => {
         if (puntaje >= 3000) return { nombre: 'Rey', emoji: '♔', css: 'badge-rey' };
@@ -22,11 +21,14 @@ document.addEventListener('DOMContentLoaded', () => {
         return { nombre: 'Peón', emoji: '♙', css: 'badge-peon' };
     };
 
+    const NIVEL_POR_NOMBRE = Object.fromEntries([3000, 1500, 800, 400, 150, 0].map(p => [calcNivel(p).nombre, calcNivel(p)]));
+
     // Función: genera el HTML de una fila de alumno desde el JSON del backend
     const renderFila = (r) => {
-        const nv = calcNivel(r.info?.puntaje ?? 0);
+        // El nombre del nivel viene del servidor (rangos de academico.nivel); calcNivel queda de respaldo
+        const nv = (r.nivel && NIVEL_POR_NOMBRE[r.nivel]) || calcNivel(r.info?.puntaje ?? 0);
         const nivelBadge = `<span class="badge ${nv.css}">${nv.emoji} ${nv.nombre}</span>`;
-        const sedeTxt = (window.SEDES_MAP && window.SEDES_MAP[r.id_sede]) ? window.SEDES_MAP[r.id_sede] : `Sede ${r.id_sede}`;
+        const sedeTxt = (window.SEDES_MAP && window.SEDES_MAP[r.id_sede]) ? window.SEDES_MAP[r.id_sede] : (r.info?.nombre_sede || `Sede ${r.id_sede}`);
         const estatusBadge = r.estatus
             ? '<span class="badge badge-activo">Activo</span>'
             : '<span class="badge badge-inactivo">Inactivo</span>';
@@ -41,8 +43,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         return `<tr>
             <td>${r.id}</td>
-            <td>${r.nombre}</td>
-            <td>${r.edad}</td>
+            <td>${window.EgauBuscador.html(r.nombre)}</td>
+            <td>${r.edad ?? '—'}</td>
             <td>${nivelBadge}</td>
             <td>${sedeTxt}</td>
             <td>${estatusBadge}</td>
@@ -54,51 +56,25 @@ document.addEventListener('DOMContentLoaded', () => {
         </tr>`;
     };
 
-    // Función principal que hace fetch al backend
-    let fetchActivo = null;
-    const buscarBackend = () => {
-        if (fetchActivo) fetchActivo.abort();
-        const controller = new AbortController();
-        fetchActivo = controller;
-
-        const q = buscador ? buscador.value.trim().toLowerCase() : '';
-        const nivel = document.querySelector('#dropdown-nivel .selected-text')?.getAttribute('data-value') || '';
-        const idSede = document.querySelector('#dropdown-sede .selected-text')?.getAttribute('data-value') || '';
-        const status = document.querySelector('#dropdown-status .selected-text')?.getAttribute('data-value') || '';
-
-        const params = new URLSearchParams({ q, nivel, id_sede: idSede, estatus: status });
-
-        fetch(`/admin/buscar/alumno?${params}`, {
-            credentials: 'same-origin',
-            headers: { 'Accept': 'application/json' },
-            signal: controller.signal
-        })
-            .then(r => r.json())
-            .then(res => {
-                fetchActivo = null;
-                if (!tbody) return;
-                if (res.error) { console.error(res.error); return; }
-                tbody.innerHTML = res.data.map(renderFila).join('');
-                if (info) info.textContent = `Mostrando ${res.total} resultado${res.total !== 1 ? 's' : ''}`;
-            })
-            .catch(err => {
-                if (err.name === 'AbortError') return;
-                console.error('Error al buscar alumnos:', err);
-            });
-    };
+    // Búsqueda en el servidor: debounce, cancela la anterior y pagina de 25 en 25
+    const busqueda = window.EgauBuscador.crear({
+        url: '/admin/buscar/alumno',
+        entrada: buscador,
+        info: document.getElementById('alumnos-pag-info'),
+        botones: document.getElementById('alumnos-pag-btns'),
+        params: () => ({
+            q: buscador ? buscador.value.trim() : '',
+            nivel: document.querySelector('#dropdown-nivel .selected-text')?.getAttribute('data-value') || '',
+            id_sede: document.querySelector('#dropdown-sede .selected-text')?.getAttribute('data-value') || '',
+            estatus: document.querySelector('#dropdown-status .selected-text')?.getAttribute('data-value') || '',
+        }),
+        alRecibir: (res) => { if (tbody) tbody.innerHTML = res.data.map(renderFila).join(''); },
+    });
+    const buscarBackend = () => busqueda.reiniciar();
 
     if (tabla) {
         // Cargar datos del backend al iniciar
         buscarBackend();
-
-        // Escuchar input en buscar con debounce
-        if (buscador) {
-            let debounceTimer = null;
-            buscador.addEventListener('input', () => {
-                clearTimeout(debounceTimer);
-                debounceTimer = setTimeout(buscarBackend, 350);
-            });
-        }
 
         // Lógica de los Custom Dropdowns (scoped al section-alumnos)
         const customDropdowns = document.querySelectorAll('#section-alumnos .custom-dropdown');

@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Services\EscrituraCore;
+use App\Services\Buscador;
 use App\Services\LecturaCore;
+use App\Services\Niveles;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -248,142 +250,90 @@ class AdminController extends Controller
         $query = match ($tipo) {
             'alumno' => DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
                 ->leftJoinSub(LecturaCore::sedes(), 'sede', 'alumno.id_sede', '=', 'sede.id_sede')
-                ->select('alumno.*', 'sede.nombre as nombre_sede')
+                ->select('alumno.id_alumno', 'alumno.nombre', 'alumno.apellido_p', 'alumno.apellido_m', 'alumno.email',
+                    'alumno.estatus', 'alumno.fecha_nacimiento', 'alumno.puntaje', 'alumno.id_sede', 'sede.nombre as nombre_sede')
                 ->orderBy('alumno.id_alumno', 'asc'),
             'profesor' => DB::query()->fromSub(LecturaCore::personas('profesor'), 'profesor')
                 ->leftJoinSub(LecturaCore::sedes(), 'sede', 'profesor.id_sede', '=', 'sede.id_sede')
-                ->select('profesor.*', 'sede.nombre as nombre_sede')
+                ->select('profesor.id_profesor', 'profesor.nombre', 'profesor.apellido_p', 'profesor.apellido_m', 'profesor.email',
+                    'profesor.estatus', 'profesor.telefono', 'profesor.puntaje', 'profesor.id_sede', 'sede.nombre as nombre_sede')
                 ->orderBy('profesor.id_profesor', 'asc'),
             'personal' => DB::query()->fromSub(LecturaCore::personas('personal'), 'personal')
                 ->leftJoinSub(LecturaCore::roles(), 'rol', 'personal.id_rol', '=', 'rol.id_rol')
                 ->leftJoinSub(LecturaCore::sedesPersonal(), 'usuariosede', 'personal.id_personal', '=', 'usuariosede.id_personal')
                 ->leftJoinSub(LecturaCore::sedes(), 'sede', 'usuariosede.id_sede', '=', 'sede.id_sede')
-                ->select('personal.*', 'rol.nombre as nombre_rol', 'usuariosede.id_sede', 'sede.nombre as nombre_sede')
+                ->select('personal.id_personal', 'personal.nombre', 'personal.apellido_p', 'personal.apellido_m', 'personal.email',
+                    'personal.estatus', 'personal.id_rol', 'rol.nombre as nombre_rol', 'usuariosede.id_sede', 'sede.nombre as nombre_sede')
                 ->orderBy('personal.id_personal', 'asc'),
         };
 
-        if ($q !== '') {
-            $query->where(function ($sub) use ($q, $tipo) {
-                $tabla = $tipo === 'personal' ? 'personal' : $tipo;
-                $pk = "id_{$tipo}";
+        // Texto: cada palabra debe aparecer en nombre, apellidos, email, sede o rol.
+        // También cuenta como coincidencia el ID exacto, "activo"/"inactivo" y el nombre de un nivel.
+        $columnas = ["{$tipo}.nombre", "{$tipo}.apellido_p", "{$tipo}.apellido_m", "{$tipo}.email"];
+        $columnas[] = $tipo === 'personal' ? 'rol.nombre' : 'sede.nombre';
 
-                // ID exacto
-                if (is_numeric($q)) {
-                    $sub->orWhere("{$tabla}.{$pk}", (int) $q);
+        Buscador::filtrar($query, $q, $columnas, function ($sub, $palabra) use ($tipo) {
+            if (ctype_digit($palabra) && strlen($palabra) <= 9) {
+                $sub->orWhere("{$tipo}.id_{$tipo}", (int) $palabra);
+            }
+            if (in_array($palabra, ['activo', 'inactivo'], true)) {
+                $sub->orWhere("{$tipo}.estatus", $palabra === 'activo');
+            }
+            if ($tipo === 'alumno') {
+                foreach (Niveles::quePorTexto($palabra) as $n) {
+                    Niveles::dentro($sub, 'alumno.puntaje', $n, 'or');
                 }
-
-                // Nombre, apellidos, email
-                $sub->orWhereRaw("LOWER({$tabla}.nombre) LIKE ?", ["%{$q}%"])
-                    ->orWhereRaw("LOWER({$tabla}.apellido_p) LIKE ?", ["%{$q}%"])
-                    ->orWhereRaw("LOWER({$tabla}.apellido_m) LIKE ?", ["%{$q}%"])
-                    ->orWhereRaw("LOWER({$tabla}.email) LIKE ?", ["%{$q}%"]);
-
-                // Sede (solo alumno y profesor)
-                if (in_array($tipo, ['alumno', 'profesor'])) {
-                    $sub->orWhereRaw("LOWER(sede.nombre) LIKE ?", ["%{$q}%"]);
-                }
-
-                // Rol (solo personal)
-                if ($tipo === 'personal') {
-                    $sub->orWhereRaw("LOWER(rol.nombre) LIKE ?", ["%{$q}%"]);
-                }
-
-                // Estatus
-                if (in_array($q, ['activo', 'inactivo'])) {
-                    $esActivo = $q === 'activo';
-                    $sub->orWhere("{$tabla}.estatus", $esActivo);
-                }
-
-                // Nivel (solo alumnos, basado en puntaje — piezas de ajedrez)
-                if ($tipo === 'alumno') {
-                    if (str_contains('peón', $q) || str_contains('peon', $q)) {
-                        $sub->orWhere("{$tabla}.puntaje", '<', 150);
-                    } elseif (str_contains('caballo', $q)) {
-                        $sub->orWhereBetween("{$tabla}.puntaje", [150, 399]);
-                    } elseif (str_contains('alfil', $q)) {
-                        $sub->orWhereBetween("{$tabla}.puntaje", [400, 799]);
-                    } elseif (str_contains('torre', $q)) {
-                        $sub->orWhereBetween("{$tabla}.puntaje", [800, 1499]);
-                    } elseif (str_contains('reina', $q)) {
-                        $sub->orWhereBetween("{$tabla}.puntaje", [1500, 2999]);
-                    } elseif (str_contains('rey', $q)) {
-                        $sub->orWhere("{$tabla}.puntaje", '>=', 3000);
-                    }
-                }
-            });
-        }
+            }
+        });
 
         if ($idSede !== '') {
-            if ($tipo === 'alumno')
-                $query->where('alumno.id_sede', (int) $idSede);
-            elseif ($tipo === 'profesor')
-                $query->where('profesor.id_sede', (int) $idSede);
-            elseif ($tipo === 'personal')
-                $query->where('usuariosede.id_sede', (int) $idSede);
+            $query->where($tipo === 'personal' ? 'usuariosede.id_sede' : "{$tipo}.id_sede", (int) $idSede);
         }
-        // Filtro estatus
+
         if ($estatus !== '') {
-            $esActivo = in_array($estatus, ['activo', 'true', '1'], true);
-            $tabla = $tipo === 'personal' ? 'personal' : $tipo;
-            $query->where("{$tabla}.estatus", $esActivo);
+            $query->where("{$tipo}.estatus", in_array($estatus, ['activo', 'true', '1'], true));
         }
 
-        // Filtro nivel (alumnos: basado en puntaje — piezas de ajedrez)
-        if ($tipo === 'alumno' && $nivel !== '') {
-            match ($nivel) {
-                'peon' => $query->where('puntaje', '<', 150),
-                'caballo' => $query->whereBetween('puntaje', [150, 399]),
-                'alfil' => $query->whereBetween('puntaje', [400, 799]),
-                'torre' => $query->whereBetween('puntaje', [800, 1499]),
-                'reina' => $query->whereBetween('puntaje', [1500, 2999]),
-                'rey' => $query->where('puntaje', '>=', 3000),
-                default => null,
-            };
+        // Filtro nivel (solo alumnos), con los rangos de academico.nivel
+        if ($tipo === 'alumno' && $nivel !== '' && ($n = Niveles::buscar($nivel))) {
+            Niveles::dentro($query, 'alumno.puntaje', $n);
         }
 
-        // Filtro rol (personal)
         if ($tipo === 'personal' && $idRol !== '') {
             $query->where('personal.id_rol', (int) $idRol);
         }
 
-        $resultados = $query->get();
+        [$resultados, $meta] = Buscador::obtener($query, $request);
 
-        // Formatear respuesta para el frontend
+        // Solo se manda lo que la tabla usa ("info" trae lo mínimo que lee el JS)
         $filas = $resultados->map(function ($r) use ($tipo) {
             $base = [
                 'id' => $r->{"id_{$tipo}"},
                 'nombre' => trim("{$r->nombre} {$r->apellido_p} " . ($r->apellido_m ?? '')),
                 'email' => $r->email,
                 'estatus' => $r->estatus,
-                'info' => (array) $r,
+                'id_sede' => $r->id_sede,
             ];
 
             if ($tipo === 'alumno') {
-                $edad = \Carbon\Carbon::parse($r->fecha_nacimiento)->age;
-                $puntaje = (int) ($r->puntaje ?? 0);
-                $nivel = match (true) {
-                    $puntaje >= 3000 => 'Rey',
-                    $puntaje >= 1500 => 'Reina',
-                    $puntaje >= 800 => 'Torre',
-                    $puntaje >= 400 => 'Alfil',
-                    $puntaje >= 150 => 'Caballo',
-                    default => 'Peón',
-                };
-                $base['edad'] = $edad;
-                $base['nivel'] = $nivel;
-                $base['id_sede'] = $r->id_sede;
+                $n = Niveles::dePuntaje((int) ($r->puntaje ?? 0));
+                $base['edad'] = $r->fecha_nacimiento ? \Carbon\Carbon::parse($r->fecha_nacimiento)->age : null;
+                $base['nivel'] = $n['nombre'];
+                $base['puntaje'] = (int) ($r->puntaje ?? 0);
+                $base['info'] = ['puntaje' => (int) ($r->puntaje ?? 0), 'nombre_sede' => $r->nombre_sede];
             } elseif ($tipo === 'profesor') {
-                $base['id_sede'] = $r->id_sede;
                 $base['puntaje'] = $r->puntaje;
-            } elseif ($tipo === 'personal') {
+                $base['info'] = ['nombre_sede' => $r->nombre_sede, 'telefono' => $r->telefono];
+            } else {
                 $base['id_rol'] = $r->id_rol;
                 $base['nombre_rol'] = $r->nombre_rol ?? '';
+                $base['info'] = ['nombre_sede' => $r->nombre_sede];
             }
 
             return $base;
         });
 
-        return response()->json(['total' => $filas->count(), 'data' => $filas]);
+        return response()->json(['total' => $meta['total'], 'meta' => $meta, 'data' => $filas]);
     }
 
     // ===================== SEDES =====================
@@ -395,19 +345,13 @@ class AdminController extends Controller
 
         $query = DB::query()->fromSub(LecturaCore::sedes(), 'sede');
 
-        if ($q) {
-            $query->where(function ($sub) use ($q) {
-                $sub->whereRaw('LOWER(nombre) LIKE ?', ['%' . strtolower($q) . '%'])
-                    ->orWhereRaw('LOWER(ciudad) LIKE ?', ['%' . strtolower($q) . '%'])
-                    ->orWhereRaw('LOWER(calle) LIKE ?', ['%' . strtolower($q) . '%']);
-            });
-        }
+        Buscador::filtrar($query, $q, ['nombre', 'ciudad', 'calle', 'estado_residencia']);
 
         if ($estado) {
-            $query->whereRaw('LOWER(estado_residencia) = ?', [strtolower($estado)]);
+            $query->whereRaw(Buscador::expresion('estado_residencia') . ' = ?', [Buscador::comoEnBase(trim($estado))]);
         }
 
-        $sedes = $query->orderBy('id_sede')->get();
+        [$sedes, $meta] = Buscador::obtener($query->orderBy('id_sede'), $request);
 
         return response()->json([
             'data' => $sedes->map(fn($s) => [
@@ -421,7 +365,8 @@ class AdminController extends Controller
                 'email' => $s->email,
                 'estatus' => $s->estatus,
             ]),
-            'total' => $sedes->count(),
+            'total' => $meta['total'],
+            'meta' => $meta,
         ]);
     }
 
@@ -522,7 +467,7 @@ class AdminController extends Controller
 
         $grupos = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
             ->joinSub(LecturaCore::cursos(), 'curso',    'grupo.id_curso',    '=', 'curso.id_curso')
-            ->joinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
+            ->leftJoinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
             ->selectRaw("
                 grupo.nombre,
                 grupo.id_grupo,
@@ -540,18 +485,14 @@ class AdminController extends Controller
                 profesor.apellido_p AS prof_apellido,
                 grupo.cupo_actual AS inscritos
             ")
-            ->when($q !== '', function ($query) use ($q) {
-                $ql = '%' . mb_strtolower($q) . '%';
-                $query->where(function ($sub) use ($ql) {
-                    $sub->whereRaw('LOWER(grupo.codigo_grupo) LIKE ?', [$ql])
-                        ->orWhereRaw('LOWER(curso.nivel::text) LIKE ?',     [$ql])
-                        ->orWhereRaw('LOWER(profesor.nombre) LIKE ?', [$ql])
-                        ->orWhereRaw('LOWER(curso.nombre) LIKE ?',    [$ql]);
-                });
-            })
           ->when($idProfesor !== '', fn($q) => $q->where('grupo.id_profesor', (int) $idProfesor))
-            ->orderBy('grupo.id_grupo')
-            ->get();
+            ->orderBy('grupo.id_grupo');
+
+        Buscador::filtrar($grupos, $q,
+            ['grupo.codigo_grupo', 'grupo.nombre', 'curso.nombre', 'profesor.nombre', 'profesor.apellido_p', 'profesor.apellido_m'],
+            fn($sub, $palabra) => self::orNivelDeCurso($sub, $palabra));
+
+        [$grupos, $meta] = Buscador::obtener($grupos, $request);
 
         $ids = $grupos->pluck('id_grupo')->toArray();
         $horariosPorGrupo = DB::query()->fromSub(LecturaCore::horarios(), 'horario')
@@ -571,7 +512,7 @@ class AdminController extends Controller
                 'nombre_curso'    => $g->nombre_curso,
                 'id_curso'        => $g->id_curso,
                 'id_profesor'     => $g->id_profesor,
-                'nombre_profesor' => trim($g->prof_nombre . ' ' . $g->prof_apellido),
+                'nombre_profesor' => trim(($g->prof_nombre ?? '') . ' ' . ($g->prof_apellido ?? '')),
                 'inscritos'       => (int) $g->inscritos,
                 'cupo_maximo'     => (int) $g->cupo_maximo,
                 'fecha_inicio'    => $g->fecha_inicio,
@@ -587,7 +528,15 @@ class AdminController extends Controller
             ];
         });
 
-        return response()->json(['data' => $result]);
+        return response()->json(['data' => $result, 'meta' => $meta]);
+    }
+
+    /** OR por palabra: el nivel que pide el curso se llama así ("torre" → cursos de nivel Torre). */
+    private static function orNivelDeCurso($sub, string $palabra): void
+    {
+        foreach (Niveles::quePorTexto($palabra) as $n) {
+            $sub->orWhere('curso.nivel', $n['min']);
+        }
     }
 
     /** La fecha de inicio del grupo tiene que caer dentro del periodo elegido. */
@@ -631,7 +580,7 @@ class AdminController extends Controller
     {
         $g = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
             ->joinSub(LecturaCore::cursos(), 'curso',    'grupo.id_curso',    '=', 'curso.id_curso')
-            ->joinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
+            ->leftJoinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
             ->selectRaw("
                 grupo.nombre,
                 grupo.id_grupo, grupo.codigo_grupo, grupo.periodo,
@@ -739,7 +688,7 @@ class AdminController extends Controller
 {
     $g = DB::query()->fromSub(LecturaCore::grupos(), 'grupo')
         ->joinSub(LecturaCore::cursos(), 'curso',    'grupo.id_curso',    '=', 'curso.id_curso')
-        ->joinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
+        ->leftJoinSub(LecturaCore::personas('profesor'), 'profesor', 'grupo.id_profesor', '=', 'profesor.id_profesor')
         ->leftJoinSub(LecturaCore::sedes(), 'sede', 'curso.id_sede',     '=', 'sede.id_sede')
         ->selectRaw("
             grupo.id_grupo, grupo.codigo_grupo, grupo.periodo,
@@ -808,18 +757,14 @@ $alumnos = DB::query()->fromSub(LecturaCore::inscripciones(), 'inscripcion')
                 curso.requisitos,
                 sede.nombre AS nombre_sede
             ")
-            ->when($q !== '', function ($query) use ($q) {
-                $ql = '%' . mb_strtolower($q) . '%';
-                $query->where(function ($sub) use ($ql) {
-                    $sub->whereRaw('LOWER(curso.nombre) LIKE ?', [$ql])
-                        ->orWhereRaw('LOWER(curso.nivel::text)  LIKE ?', [$ql])
-                        ->orWhereRaw('LOWER(sede.nombre)  LIKE ?', [$ql]);
-                });
-            })
-            ->orderBy('curso.id_curso')
-            ->get();
+            ->orderBy('curso.id_curso');
 
-        return response()->json(['data' => $cursos]);
+        Buscador::filtrar($cursos, $q, ['curso.nombre', 'sede.nombre'],
+            fn($sub, $palabra) => self::orNivelDeCurso($sub, $palabra));
+
+        [$cursos, $meta] = Buscador::obtener($cursos, $request);
+
+        return response()->json(['data' => $cursos, 'meta' => $meta]);
     }
 
     public function registrarCurso(Request $request)

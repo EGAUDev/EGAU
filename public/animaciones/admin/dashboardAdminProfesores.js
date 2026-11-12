@@ -31,12 +31,12 @@ document.addEventListener('DOMContentLoaded', () => {
             : '';
 
         return `
-<div class="profesor-card" data-nombre="${r.nombre}" data-email="${r.email}">
+<div class="profesor-card" data-nombre="${window.EgauBuscador.html(r.nombre)}" data-email="${window.EgauBuscador.html(r.email)}">
     <div class="profesor-card-body">
-        <h3 class="profesor-nombre">${r.nombre}</h3>
+        <h3 class="profesor-nombre">${window.EgauBuscador.html(r.nombre)}</h3>
         <div class="profesor-info">
-            <span><i class="ri-mail-line"></i> ${r.email}</span>
-            <span><i class="ri-phone-line"></i> ${telefono}</span>
+            <span><i class="ri-mail-line"></i> ${window.EgauBuscador.html(r.email)}</span>
+            <span><i class="ri-phone-line"></i> ${window.EgauBuscador.html(telefono)}</span>
         </div>
     </div>
     <div class="profesor-card-footer">
@@ -47,44 +47,27 @@ document.addEventListener('DOMContentLoaded', () => {
 </div>`;
     };
 
-    let fetchActivoProf = null;
-    const buscarProfesoresBackend = () => {
-        if (fetchActivoProf) fetchActivoProf.abort();
-        const controller = new AbortController();
-        fetchActivoProf = controller;
-
-        const q = buscadorProf ? buscadorProf.value.trim().toLowerCase() : '';
-        const status = document.querySelector('#section-profesores .custom-dropdown .selected-text')?.getAttribute('data-value') || '';
-        const params = new URLSearchParams({ q, estatus: status });
-
-        fetch(`/admin/buscar/profesor?${params}`, {
-            credentials: 'same-origin',
-            headers: { 'Accept': 'application/json' },
-            signal: controller.signal
-        })
-            .then(r => r.json())
-            .then(res => {
-                fetchActivoProf = null;
-                if (!gridProfesores) return;
-                if (res.error) { console.error(res.error); return; }
-                gridProfesores.innerHTML = res.data.map(renderTarjeta).join('');
-                if (msgEmpty) msgEmpty.style.display = res.total === 0 ? 'block' : 'none';
-            })
-            .catch(err => {
-                if (err.name === 'AbortError') return;
-                console.error('Error al buscar profesores:', err);
-            });
-    };
+    // Búsqueda en el servidor: debounce, cancela la anterior y pagina de 24 en 24 (tarjetas)
+    const busqueda = window.EgauBuscador.crear({
+        url: '/admin/buscar/profesor',
+        entrada: buscadorProf,
+        porPagina: 24,
+        palabra: 'profesor',
+        info: document.getElementById('profesores-pag-info'),
+        botones: document.getElementById('profesores-pag-btns'),
+        params: () => ({
+            q: buscadorProf ? buscadorProf.value.trim() : '',
+            estatus: document.querySelector('#section-profesores .custom-dropdown .selected-text')?.getAttribute('data-value') || '',
+        }),
+        alRecibir: (res) => {
+            if (!gridProfesores) return;
+            gridProfesores.innerHTML = res.data.map(renderTarjeta).join('');
+            if (msgEmpty) msgEmpty.style.display = res.total === 0 ? 'block' : 'none';
+        },
+    });
+    const buscarProfesoresBackend = () => busqueda.reiniciar();
 
     buscarProfesoresBackend();
-
-    if (buscadorProf) {
-        let debounceTimerProf = null;
-        buscadorProf.addEventListener('input', () => {
-            clearTimeout(debounceTimerProf);
-            debounceTimerProf = setTimeout(buscarProfesoresBackend, 350);
-        });
-    }
 
     if (btnLimpiarProf) {
         btnLimpiarProf.addEventListener('click', () => {

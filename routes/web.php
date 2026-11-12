@@ -95,21 +95,7 @@ Route::middleware(VerificarToken::class)->group(function () {
             return redirect()->route('dashboard.alumno');
         }
 
-        $alumnos = DB::query()->fromSub(LecturaCore::personas('alumno'), 'alumno')
-            ->leftJoinSub(LecturaCore::sedes(), 'sede', 'alumno.id_sede', '=', 'sede.id_sede')
-            ->select('alumno.*', 'sede.nombre as nombre_sede')
-            ->orderBy('alumno.id_alumno', 'asc')
-            ->get();
-        $profesores = DB::query()->fromSub(LecturaCore::personas('profesor'), 'profesor')
-            ->leftJoinSub(LecturaCore::sedes(), 'sede', 'profesor.id_sede', '=', 'sede.id_sede')
-            ->select('profesor.*', 'sede.nombre as nombre_sede')
-            ->orderBy('profesor.id_profesor', 'asc')
-            ->get();
-        $personal = DB::query()->fromSub(LecturaCore::personas('personal'), 'personal')
-            ->leftJoinSub(LecturaCore::roles(), 'rol', 'personal.id_rol', '=', 'rol.id_rol')
-            ->select('personal.*', 'rol.nombre as nombre_rol')
-            ->orderBy('personal.id_personal', 'asc')
-            ->get();
+        // Alumnos, profesores y personal ya no se precargan: cada tabla los pide paginados al abrirse
         $sedes = DB::query()->fromSub(LecturaCore::sedes(), 'sede')->orderBy('id_sede')->get(['id_sede', 'nombre']);
         $roles = DB::query()->fromSub(LecturaCore::roles(), 'rol')->orderBy('id_rol')->get(['id_rol', 'nombre']);
         $periodos = DB::table('academico.periodo')
@@ -121,7 +107,7 @@ Route::middleware(VerificarToken::class)->group(function () {
         $administrativo = filter_var(session('administrativo', false), FILTER_VALIDATE_BOOLEAN);
         $tipo = session('tipo', 'personal');
         $idProfesor = session('id_profesor');
-        return view('dashboardAdmin', compact('alumnos', 'profesores', 'personal', 'sedes', 'roles', 'periodos', 'permisos', 'administrativo', 'tipo', 'idProfesor'));
+        return view('dashboardAdmin', compact('sedes', 'roles', 'periodos', 'permisos', 'administrativo', 'tipo', 'idProfesor'));
     })->name('dashboard.admin');
 
     Route::get('/dashboardAlumno', function () {

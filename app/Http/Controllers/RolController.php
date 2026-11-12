@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use App\Services\EscrituraCore;
+use App\Services\Buscador;
 use App\Services\LecturaCore;
 use Illuminate\Validation\Rule;
 
@@ -32,25 +33,20 @@ class RolController extends Controller
             ->where('rol.id_rol', '!=', $superAdminId)
             ->orderBy('rol.id_rol');
 
-        if ($q !== '') {
-            $ql = '%' . strtolower($q) . '%';
-            $query->where(function ($sub) use ($ql) {
-                $sub->whereRaw('LOWER(rol.nombre) LIKE ?', [$ql])
-                    ->orWhereRaw('LOWER(rol.descripcion) LIKE ?', [$ql]);
-                if (is_numeric(trim($ql, '%'))) {
-                    $sub->orWhere('rol.id_rol', (int) trim($ql, '%'));
-                }
-            });
-        }
+        Buscador::filtrar($query, $q, ['rol.nombre', 'rol.descripcion'], function ($sub, $palabra) {
+            if (ctype_digit($palabra) && strlen($palabra) <= 9) {
+                $sub->orWhere('rol.id_rol', (int) $palabra);
+            }
+        });
 
         if ($estatus !== '') {
             $esActivo = in_array($estatus, ['activo', 'true', '1'], true);
             $query->where('rol.estatus', $esActivo);
         }
 
-        $roles = $query->get();
+        [$roles, $meta] = Buscador::obtener($query, $request);
 
-        return response()->json(['total' => $roles->count(), 'data' => $roles]);
+        return response()->json(['total' => $meta['total'], 'meta' => $meta, 'data' => $roles]);
     }
 
     // -------------------------------------------------------
