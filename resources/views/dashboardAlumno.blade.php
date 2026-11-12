@@ -26,6 +26,9 @@
     <link rel="stylesheet" href="{{ asset('css/alumno/dashboardAlumnoMisGrupos.css') }}">
     <link rel="stylesheet" href="{{ asset('css/alumno/dashboardAlumnoPagos.css') }}">
     <link rel="stylesheet" href="{{ asset('css/alumno/dashboardAlumnoMiPerfil.css') }}">
+    {{-- Biblioteca (SCRUM-35..39) --}}
+    <link rel="stylesheet" href="{{ asset('css/comun/visorPartida.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/alumno/dashboardAlumnoBiblioteca.css') }}">
 
     <!-- Hojas de estilos — vistas fusionadas de la carpeta dashboardAlumno -->
     {{-- CSS interacciones dinámicas Mariana --}}
@@ -95,6 +98,14 @@
                     <a href="#">
                         <i class="ri-bank-card-line"></i>
                         <span>Pagos</span>
+                    </a>
+                </li>
+
+                <!-- ---- Biblioteca (SCRUM-35) ---- -->
+                <li class="nav-item" data-section="biblioteca">
+                    <a href="#">
+                        <i class="ri-book-open-line"></i>
+                        <span>Biblioteca</span>
                     </a>
                 </li>
             </ul>
@@ -948,6 +959,106 @@
         </div>
 
 
+
+        <!-- =============================================
+             SECCIÓN: BIBLIOTECA (SCRUM-35..39)
+             Para ti (recomendados), Explorar, Mi progreso y Favoritos.
+             Lo llena dashboardAlumnoBiblioteca.js con /api/biblioteca/alumno
+             ============================================= -->
+        <div id="section-biblioteca" class="section-content" style="display:none;">
+            <div class="page-content">
+
+                <div class="page-header ab-encabezado">
+                    <div>
+                        <h1 class="page-title">Biblioteca</h1>
+                        <p class="page-subtitle">Libros, partidas, aperturas y videos para tu nivel</p>
+                    </div>
+                </div>
+
+                <div class="ab-pestanas" role="tablist">
+                    <button type="button" class="ab-pestana active" data-ab-tab="inicio" role="tab"><i class="ri-sparkling-line"></i> Para ti</button>
+                    <button type="button" class="ab-pestana" data-ab-tab="explorar" role="tab"><i class="ri-search-line"></i> Explorar</button>
+                    <button type="button" class="ab-pestana" data-ab-tab="progreso" role="tab"><i class="ri-line-chart-line"></i> Mi progreso</button>
+                    <button type="button" class="ab-pestana" data-ab-tab="favoritos" role="tab"><i class="ri-heart-3-line"></i> Favoritos</button>
+                </div>
+
+                {{-- Para ti: continuar + recomendados (SCRUM-39) --}}
+                <div class="ab-vista" data-ab-vista="inicio">
+                    <div id="ab-continuar"></div>
+                    <div class="ab-bloque-titulo">
+                        <h2 id="ab-recomendados-titulo">Recomendado para ti</h2>
+                    </div>
+                    <div class="ab-grid" id="ab-recomendados"></div>
+                </div>
+
+                {{-- Explorar --}}
+                <div class="ab-vista" data-ab-vista="explorar" hidden>
+                    <div class="ab-filtros">
+                        <div class="ab-buscar">
+                            <i class="ri-search-line"></i>
+                            <input type="search" id="ab-buscar" placeholder="Buscar por título, autor, tema o código ECO (B33)..." autocomplete="off">
+                        </div>
+                        <select id="ab-filtro-tipo" aria-label="Tipo">
+                            <option value="">Todo (sin aperturas)</option>
+                            <option value="libro">Libros</option>
+                            <option value="partida">Partidas</option>
+                            <option value="video">Videos</option>
+                            <option value="problema">Ejercicios</option>
+                            <option value="apertura">Aperturas</option>
+                        </select>
+                        <select id="ab-filtro-nivel" aria-label="Nivel">
+                            <option value="">Todos los niveles</option>
+                        </select>
+                    </div>
+                    <p class="ab-conteo" id="ab-conteo"></p>
+                    <div class="ab-grid" id="ab-resultados"></div>
+                    <div class="ab-paginacion" id="ab-paginacion"></div>
+                </div>
+
+                {{-- Mi progreso (SCRUM-36) --}}
+                <div class="ab-vista" data-ab-vista="progreso" hidden>
+                    <div class="ab-kpis" id="ab-kpis"></div>
+                    <div class="ab-dos-columnas">
+                        <div class="card">
+                            <div class="section-card-title"><i class="ri-bar-chart-2-line"></i> Avance por nivel</div>
+                            <div id="ab-por-nivel"></div>
+                        </div>
+                        <div class="card">
+                            <div class="section-card-title"><i class="ri-history-line"></i> Lo que has visto</div>
+                            <div id="ab-historial" class="ab-lista"></div>
+                        </div>
+                    </div>
+                </div>
+
+                {{-- Favoritos --}}
+                <div class="ab-vista" data-ab-vista="favoritos" hidden>
+                    <div class="ab-grid" id="ab-favoritos"></div>
+                </div>
+
+                {{-- Un recurso abierto: lector PDF, video o visor de partida --}}
+                <div class="ab-vista" data-ab-vista="recurso" hidden>
+                    <button type="button" class="ab-volver" id="ab-volver"><i class="ri-arrow-left-line"></i> Volver</button>
+                    <div class="ab-recurso-cabecera">
+                        <div>
+                            <div class="ab-recurso-chips" id="ab-recurso-chips"></div>
+                            <h2 class="ab-recurso-titulo" id="ab-recurso-titulo"></h2>
+                            <p class="ab-recurso-sub" id="ab-recurso-sub"></p>
+                        </div>
+                        <div class="ab-recurso-acciones">
+                            <button type="button" class="ab-btn-icono" id="ab-favorito" title="Agregar a favoritos"><i class="ri-heart-3-line"></i></button>
+                            <button type="button" class="ab-btn-sec" id="ab-terminado"><i class="ri-check-double-line"></i> Marcar como terminado</button>
+                            <button type="button" class="ab-btn-sec" id="ab-descargar" hidden><i class="ri-download-2-line"></i> Descargar</button>
+                        </div>
+                    </div>
+                    <div class="ab-progreso-linea"><div class="ab-progreso-relleno" id="ab-progreso-barra"></div></div>
+                    <p class="ab-descripcion" id="ab-recurso-desc"></p>
+                    <div class="card ab-recurso-cuerpo" id="ab-recurso-cuerpo"></div>
+                </div>
+
+            </div>{{-- /page-content --}}
+        </div>
+        <!-- /SECCIÓN BIBLIOTECA -->
+
         <!-- =============================================
              SECCIÓN: MI PERFIL (stub — contenido movido a Opciones S-46)
              ============================================= -->
@@ -1190,6 +1301,9 @@
     <script src="{{ asset('animaciones/alumno/dashboardAlumnoMisGrupos.js') }}"></script>
     <script src="{{ asset('animaciones/alumno/dashboardAlumnoPagos.js') }}"></script>
     <script src="{{ asset('animaciones/alumno/dashboardAlumnoMiPerfil.js') }}"></script>
+    {{-- Biblioteca (SCRUM-35..39) --}}
+    <script src="{{ asset('animaciones/comun/visorPartida.js') }}"></script>
+    <script src="{{ asset('animaciones/alumno/dashboardAlumnoBiblioteca.js') }}"></script>
 </body>
 
 </html>

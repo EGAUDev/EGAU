@@ -114,6 +114,7 @@ Route::middleware(VerificarToken::class)->group(function () {
         Route::post('/api/biblioteca/alumno/recursos/{id}/progreso', [BibliotecaController::class, 'alumnoProgreso'])->whereNumber('id');
         Route::put('/api/biblioteca/alumno/recursos/{id}/favorito',  [BibliotecaController::class, 'alumnoFavorito'])->whereNumber('id');
         Route::get('/api/biblioteca/alumno/progreso',                [BibliotecaController::class, 'alumnoMiProgreso']);
+        Route::get('/api/biblioteca/alumno/recomendados',            [BibliotecaController::class, 'alumnoRecomendados']);
     });
 
 

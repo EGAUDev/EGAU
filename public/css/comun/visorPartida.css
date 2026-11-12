@@ -1,0 +1,145 @@
+/* =============================================
+   visorPartida.css — Visor de partidas (SCRUM-37)
+   Lo usan el portal del alumno y el panel del personal.
+   ============================================= */
+
+.ev-visor {
+    --ev-casilla: 52px;
+    --ev-clara: #fce0d8;
+    --ev-oscura: #f2a794;
+    --ev-acento: #e05c2a;
+    display: grid;
+    grid-template-columns: auto minmax(220px, 1fr);
+    gap: 24px;
+    align-items: start;
+    outline: none;
+}
+
+.ev-visor [hidden] { display: none !important; }
+
+.ev-zona-tablero { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+
+.ev-marco {
+    display: grid;
+    grid-template-columns: 18px auto;
+    grid-template-rows: auto 18px;
+}
+
+.ev-rangos, .ev-columnas {
+    display: grid;
+    font-size: 11px;
+    color: #888;
+    font-weight: 600;
+}
+.ev-rangos   { grid-template-rows: repeat(8, var(--ev-casilla)); align-items: center; }
+.ev-columnas { grid-template-columns: repeat(8, var(--ev-casilla)); justify-items: center; align-items: end; }
+
+.ev-tablero {
+    display: grid;
+    grid-template-columns: repeat(8, var(--ev-casilla));
+    grid-template-rows: repeat(8, var(--ev-casilla));
+    border: 2px solid rgba(90, 29, 11, 0.4);
+    border-radius: 6px;
+    overflow: hidden;
+    user-select: none;
+}
+
+.ev-casilla {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(var(--ev-casilla) * 0.7);
+    line-height: 1;
+}
+.ev-clara   { background: var(--ev-clara); }
+.ev-oscura  { background: var(--ev-oscura); }
+.ev-marcada { box-shadow: inset 0 0 0 100px rgba(255, 213, 79, 0.45); }
+.ev-pieza.ev-blanca { color: #fff; text-shadow: 0 0 2px #000, 0 0 1px #000; }
+.ev-pieza.ev-negra  { color: #1a1a1a; }
+
+.ev-controles { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; }
+
+.ev-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    background: #fff;
+    color: #333;
+    cursor: pointer;
+    font-size: 17px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.ev-btn:hover:not(:disabled) { border-color: var(--ev-acento); color: var(--ev-acento); }
+.ev-btn:disabled { opacity: 0.4; cursor: default; }
+
+.ev-pos { min-width: 120px; text-align: center; font-size: 13px; font-weight: 600; color: #555; }
+
+.ev-variante-aviso {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    font-size: 13px;
+    background: #fdf0eb;
+    color: #a3401a;
+    padding: 6px 12px;
+    border-radius: 8px;
+}
+.ev-link { background: none; border: none; color: var(--ev-acento); font-weight: 600; cursor: pointer; text-decoration: underline; font: inherit; }
+
+.ev-ayuda { font-size: 12px; color: #999; margin: 0; }
+
+.ev-zona-jugadas { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+
+.ev-jugadas {
+    max-height: 430px;
+    overflow-y: auto;
+    line-height: 2;
+    font-size: 14px;
+    padding: 12px;
+    border: 1px solid #ebebeb;
+    border-radius: 10px;
+    background: #fff;
+    position: relative;
+}
+.ev-num { color: #999; font-weight: 600; margin-right: 2px; }
+.ev-mov {
+    background: none;
+    border: none;
+    padding: 1px 5px;
+    border-radius: 5px;
+    font: inherit;
+    font-weight: 600;
+    color: #222;
+    cursor: pointer;
+}
+.ev-mov:hover  { background: #f4f4f4; }
+.ev-mov.active { background: var(--ev-acento); color: #fff; }
+.ev-variante { color: #777; font-size: 13px; }
+.ev-variante .ev-mov { font-weight: 500; color: #666; }
+.ev-variante .ev-mov.active { color: #fff; }
+.ev-resultado { font-weight: 700; margin-left: 6px; }
+
+.ev-exportar { display: flex; gap: 8px; flex-wrap: wrap; }
+.ev-btn-texto {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 8px;
+    border: 1px solid #e0e0e0;
+    background: #fff;
+    cursor: pointer;
+    font: 600 13px 'Inter', sans-serif;
+    color: #333;
+}
+.ev-btn-texto:hover { border-color: var(--ev-acento); color: var(--ev-acento); }
+
+@media (max-width: 900px) {
+    .ev-visor { grid-template-columns: 1fr; }
+}
+@media (max-width: 520px) {
+    .ev-visor { --ev-casilla: calc((100vw - 80px) / 8); }
+}

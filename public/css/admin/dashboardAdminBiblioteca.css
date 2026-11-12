@@ -672,3 +672,7 @@
 
 /* Mensaje de error del PGN en el formulario */
 .bib-error { color: #c0392b; font-size: 0.8rem; }
+
+/* Cabecera del visor (el tablero lo pinta comun/visorPartida.css) */
+.bib-visor-cabecera { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; align-items: flex-start; margin-bottom: 16px; }
+.bib-visor-cabecera .bib-tabla-meta { max-width: 420px; }

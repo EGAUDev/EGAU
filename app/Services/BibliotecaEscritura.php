@@ -39,13 +39,14 @@ class BibliotecaEscritura
         $p = Pgn::leer($pgn);
         $etiquetas = array_intersect_key($p['etiquetas'], array_flip(['Event', 'Site', 'Date', 'White', 'Black', 'Result', 'ECO', 'Opening', 'FEN', 'SetUp']));
         return [
-            'pgn'        => Pgn::escribir($p['jugadas'], $etiquetas, $p['resultado']),
+            'pgn'        => Pgn::escribir($p['jugadas'], $etiquetas, $p['resultado'], $p['variantes'], $p['fens'][0]),
             'jugadas'    => $p['jugadas'],
             'jugadas_es' => $p['jugadas_es'],
             'fens'       => $p['fens'],
             'fen_final'  => $p['fen_final'],
             'resultado'  => $p['resultado'],
             'etiquetas'  => $etiquetas,
+        ] + ($p['variantes'] ? ['variantes' => $p['variantes']] : []) + [
         ];
     }
 

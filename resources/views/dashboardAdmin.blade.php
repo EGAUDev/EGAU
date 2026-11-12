@@ -25,6 +25,7 @@
     <link rel="stylesheet" href="{{ asset('css/admin/dashboardAdminRoles.css') }}">
     <link rel="stylesheet" href="{{ asset('css/admin/dashboardAdminFacturas.css') }}">
     <link rel="stylesheet" href="{{ asset('css/admin/dashboardAdminBiblioteca.css') }}">
+    <link rel="stylesheet" href="{{ asset('css/comun/visorPartida.css') }}">
 </head>
 
 <body>
@@ -952,6 +953,7 @@
     <!-- JS Sección Roles -->
     <script src="{{ asset('animaciones/admin/dashboardAdminRoles.js') }}?v={{ time() }}"></script>
     <!-- JS Sección Biblioteca (datos de prueba + vistas) -->
+    <script src="{{ asset('animaciones/comun/visorPartida.js') }}"></script>
     <script src="{{ asset('animaciones/admin/dashboardAdminBiblioteca.js') }}?v={{ time() }}"></script>
     <!-- JS Sección Configuración -->
     <script src="{{ asset('animaciones/admin/dashboardAdminPerfil.js') }}?v={{ time() }}"></script>

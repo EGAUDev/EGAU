@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\Biblioteca;
 use App\Services\BibliotecaEscritura;
 use App\Services\Buscador;
+use App\Services\Niveles;
 use App\Services\DuplicadoException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -230,6 +231,28 @@ class BibliotecaController extends Controller
             ];
         })->values();
 
+        // Avance por nivel (SCRUM-36): material disponible de cada nivel contra lo que ya abrió o terminó.
+        // Las aperturas no cuentan aquí porque son miles y no tienen nivel.
+        $disponibles = Biblioteca::paraAlumno($idAlumno)->where('r.tipo', '<>', 'apertura')
+            ->reorder()->groupBy('n.rating_minimo')
+            ->select(DB::raw('n.rating_minimo AS minimo'), DB::raw('count(*) AS total'))
+            ->pluck('total', 'minimo');
+        $porNivel = [];
+        foreach ($disponibles as $minimo => $total) {
+            $n = $minimo === '' || $minimo === null ? null : Niveles::dePuntaje((int) $minimo);
+            $mios = $data->where('tipo_clave', '<>', 'apertura')->where('nivel', $n['nombre'] ?? null);
+            $porNivel[] = [
+                'nivel'      => $n['nombre'] ?? 'Todos los niveles',
+                'clave'      => $n['clave'] ?? null,
+                'emoji'      => $n['emoji'] ?? '',
+                'min'        => $n['min'] ?? -1,
+                'total'      => (int) $total,
+                'vistos'     => $mios->where('veces_abierto', '>', 0)->count(),
+                'terminados' => $mios->where('porcentaje', '>=', 100)->count(),
+            ];
+        }
+        usort($porNivel, fn($a, $b) => $a['min'] <=> $b['min']);
+
         return response()->json([
             'data'    => $data,
             'resumen' => [
@@ -237,7 +260,43 @@ class BibliotecaController extends Controller
                 'terminados'  => $data->where('porcentaje', '>=', 100)->count(),
                 'favoritos'   => $data->where('favorito', true)->count(),
                 'por_tipo'    => $data->groupBy('tipo')->map->count(),
+                'por_nivel'   => $porNivel,
+                'continuar'   => $data->first(fn($r) => $r['veces_abierto'] > 0 && $r['porcentaje'] < 100),
             ],
+        ]);
+    }
+
+    /**
+     * GET /api/biblioteca/alumno/recomendados (SCRUM-39): material de su nivel que todavía no abre.
+     * Primero lo de su nivel exacto, luego lo de niveles anteriores, luego lo general; las aperturas al final.
+     */
+    public function alumnoRecomendados(Request $request)
+    {
+        $idAlumno = (int) session('id_persona');
+        $rating = (int) DB::table('core.persona')->where('id', $idAlumno)->value('rating');
+        $nivel = Niveles::dePuntaje($rating);
+        $limite = max(1, min(24, (int) $request->query('limite', 8)));
+
+        $filas = Biblioteca::paraAlumno($idAlumno)
+            ->leftJoin('biblioteca.progreso_alumno as p', fn($j) => $j->on('p.id_recurso', '=', 'r.id')->where('p.id_alumno', '=', $idAlumno))
+            ->where(fn($w) => $w->whereNull('p.id_recurso')->orWhere('p.veces_abierto', 0))
+            // de las aperturas solo las líneas principales ("Sicilian Defense", no cada variante)
+            ->where(fn($w) => $w->where('r.tipo', '<>', 'apertura')->orWhere('r.titulo', 'not like', '%:%'))
+            ->reorder()
+            ->orderByRaw("CASE WHEN r.tipo = 'apertura' THEN 1 ELSE 0 END")
+            ->orderByRaw('CASE WHEN n.rating_minimo = ? THEN 0 WHEN n.rating_minimo IS NOT NULL THEN 1 ELSE 2 END', [$nivel['min']])
+            ->orderByDesc('n.rating_minimo')
+            ->orderByRaw("CASE WHEN r.tipo = 'apertura' THEN md5(r.id::text || current_date::text) END")   // las aperturas cambian cada día
+            ->orderByDesc('r.creado_en')
+            ->limit($limite)
+            ->get();
+
+        return response()->json([
+            'nivel' => $nivel,
+            'data'  => $filas->map(fn($r) => Biblioteca::fila($r) + [
+                'motivo' => $r->nivel_min !== null && (int) $r->nivel_min === $nivel['min'] ? "Para tu nivel {$nivel['nombre']}"
+                    : ($r->nivel_min !== null ? 'Para repasar' : 'Para todos los niveles'),
+            ])->values(),
         ]);
     }
 

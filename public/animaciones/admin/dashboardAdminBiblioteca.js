@@ -449,52 +449,20 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // =============================================
-    //  VISOR DE PARTIDA
+    //  VISOR DE PARTIDA (comun/visorPartida.js, SCRUM-37):
+    //  voltear, teclado, variantes y exportar PGN
     // =============================================
-    // Tablero: arreglo 8x8, fila 0 = rango 8. Mayúsculas = blancas.
-    const PIEZAS = {
-        K: '♔', Q: '♕', R: '♖', B: '♗', N: '♘', P: '♙',
-        k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟',
-    };
-    // Las posiciones vienen del servidor (FEN de cada jugada, ya validadas en SCRUM-30)
-    function tableroDeFen(fen) {
-        return fen.split(' ')[0].split('/').map(fila => {
-            const out = [];
-            for (const c of fila) {
-                if (/\d/.test(c)) for (let i = 0; i < Number(c); i++) out.push(null);
-                else out.push(c);
-            }
-            return out;
-        });
-    }
-    // Casillas que cambiaron entre dos posiciones (para marcar la última jugada)
-    function cambio(antes, despues) {
-        const dif = [];
-        for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) if (antes[r][f] !== despues[r][f]) dif.push({ f, r, vacia: !despues[r][f] });
-        const desde = dif.find(d => d.vacia) || dif[0];
-        const hasta = dif.find(d => !d.vacia) || dif[1] || dif[0];
-        return desde ? { desde, hasta } : {};
-    }
-
     let partidaActual = null;
-    let posiciones = [];   // posiciones[0] = inicial, posiciones[i] = tras la jugada i
-    let movIndex = -1;
+    const visor = window.EgauVisor ? window.EgauVisor.crear($('#bib-visor-ev')) : null;
 
     async function abrirVisor(id, yaCargada = null) {
-        let p = yaCargada;
+        let p = yaCargada && yaCargada.fens ? yaCargada : null;
         if (!p) {
             try { p = await api(`/recursos/${id}`, { clave: 'visor' }); } catch (e) { return ignorarAbort(e); }
         }
         partidaActual = p;
         cache.set(p.id, p);
         registrarHistorial(p);
-
-        posiciones = (p.fens || []).map((fen, i, todas) => {
-            const tab = tableroDeFen(fen);
-            return i === 0 ? { tab } : { tab, ...cambio(tableroDeFen(todas[i - 1]), tab) };
-        });
-        if (!posiciones.length) posiciones = [{ tab: tableroDeFen('rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR') }];
-        movIndex = -1;
 
         $('#bib-visor-titulo').textContent = p.blancas ? `${p.blancas} vs ${p.negras || '?'}` : p.titulo;
         const ficha = [
@@ -509,68 +477,9 @@ document.addEventListener('DOMContentLoaded', () => {
         $('#bib-visor-ficha').innerHTML = ficha.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
         $('#bib-visor-nivel').innerHTML = badgeNivel(p.nivel);
 
-        let html = '';
-        p.movimientos = p.movimientos || [];
-        for (let i = 0; i < p.movimientos.length; i += 2) {
-            html += `<div class="bib-jugada">
-                <span class="bib-jugada-num">${i / 2 + 1}.</span>
-                <button class="bib-jugada-btn" data-mov="${i}">${esc(p.movimientos[i])}</button>
-                ${p.movimientos[i + 1] ? `<button class="bib-jugada-btn" data-mov="${i + 1}">${esc(p.movimientos[i + 1])}</button>` : ''}
-            </div>`;
-        }
-        html += `<div class="bib-jugada-resultado">${esc(p.resultado || '*')}</div>`;
-        $('#bib-visor-jugadas').innerHTML = html;
-
-        pintarVisor();
+        visor?.cargar(p, 0);
         mostrarVista('visor');
     }
-
-    function pintarVisor() {
-        const total = posiciones.length - 1;
-        const pos = posiciones[movIndex + 1];
-
-        let html = '';
-        for (let r = 0; r < 8; r++) {
-            for (let f = 0; f < 8; f++) {
-                const clara = (r + f) % 2 === 0;
-                const marcada = pos.desde && ((pos.desde.f === f && pos.desde.r === r) || (pos.hasta.f === f && pos.hasta.r === r));
-                const p = pos.tab[r][f];
-                html += `<div class="bib-casilla ${clara ? 'bib-clara' : 'bib-oscura'} ${marcada ? 'bib-marcada' : ''}">${p ? PIEZAS[p] : ''}</div>`;
-            }
-        }
-        $('#bib-tablero').innerHTML = html;
-
-        $('#bib-visor-pos').textContent = movIndex === -1 ? 'Inicio' : `Mov. ${movIndex + 1} / ${total}`;
-        $('#bib-visor-inicio').disabled = movIndex === -1;
-        $('#bib-visor-ant').disabled = movIndex === -1;
-        $('#bib-visor-sig').disabled = movIndex === total - 1;
-        $('#bib-visor-fin').disabled = movIndex === total - 1;
-
-        $$('.bib-jugada-btn').forEach(b => {
-            const i = Number(b.dataset.mov);
-            b.classList.toggle('active', i === movIndex);
-            b.disabled = i > total - 1;
-        });
-        seccion.querySelector(`.bib-jugada-btn[data-mov="${movIndex}"]`)?.scrollIntoView({ block: 'nearest' });
-    }
-
-    const irA = (i) => { movIndex = Math.max(-1, Math.min(posiciones.length - 2, i)); pintarVisor(); };
-    $('#bib-visor-inicio').addEventListener('click', () => irA(-1));
-    $('#bib-visor-ant').addEventListener('click', () => irA(movIndex - 1));
-    $('#bib-visor-sig').addEventListener('click', () => irA(movIndex + 1));
-    $('#bib-visor-fin').addEventListener('click', () => irA(posiciones.length - 2));
-    $('#bib-visor-jugadas').addEventListener('click', (e) => {
-        const b = e.target.closest('[data-mov]');
-        if (b) irA(Number(b.dataset.mov));
-    });
-
-    // Flechas del teclado cuando el visor está abierto
-    document.addEventListener('keydown', (e) => {
-        if (seccion.style.display === 'none' || $('.bib-vista[data-vista="visor"]').style.display !== 'block') return;
-        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return;
-        if (e.key === 'ArrowRight') { e.preventDefault(); irA(movIndex + 1); }
-        if (e.key === 'ArrowLeft') { e.preventDefault(); irA(movIndex - 1); }
-    });
 
     // =============================================
     //  GESTIÓN DE MATERIAL

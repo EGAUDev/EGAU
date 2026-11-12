@@ -35,7 +35,7 @@ class Biblioteca
             ->selectRaw("r.id, r.uid, r.tipo, r.titulo, r.titulo_es, r.slug, r.eco, r.idioma, r.edad_minima, r.fuente, r.licencia,
                          r.publicado, r.id_sede, s.nombre AS nombre_sede, r.id_nivel_minimo, n.rating_minimo AS nivel_min,
                          r.metadatos, r.creado_en, r.actualizado_en,
-                         (r.contenido - 'pgn' - 'fens' - 'jugadas' - 'jugadas_es') AS resumen");
+                         (r.contenido - 'pgn' - 'fens' - 'jugadas' - 'jugadas_es' - 'variantes') AS resumen");
 
         // tipo: uno o varios separados por coma ("partida,apertura"); sin_tipo: los que no se quieren
         $tipos = array_filter(array_map([self::class, 'tipoClave'], explode(',', (string) ($f['tipo'] ?? ''))));
@@ -175,6 +175,7 @@ class Biblioteca
             $fila['jugadas'] = $contenido['jugadas'] ?? [];
             $fila['fens'] = $contenido['fens'] ?? [];
             $fila['pgn'] = $contenido['pgn'] ?? null;
+            $fila['variantes'] = $contenido['variantes'] ?? [];
             $fila['sha256'] = $archivo['sha256'] ?? null;
         }
         return $fila;

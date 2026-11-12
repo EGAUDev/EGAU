@@ -97,35 +97,15 @@
     <div class="bib-vista" data-vista="visor" style="display: none;">
         <a href="#" class="bib-volver" data-ir="partidas"><i class="ri-arrow-left-line"></i> Volver a partidas</a>
 
-        <div class="bib-visor">
-            <div class="bib-visor-izq">
-                <div class="bib-tablero-marco">
-                    <div class="bib-rangos"><span>8</span><span>7</span><span>6</span><span>5</span><span>4</span><span>3</span><span>2</span><span>1</span></div>
-                    <div class="bib-tablero" id="bib-tablero"></div>
-                    <div></div>
-                    <div class="bib-columnas"><span>a</span><span>b</span><span>c</span><span>d</span><span>e</span><span>f</span><span>g</span><span>h</span></div>
-                </div>
-                <div class="bib-visor-controles">
-                    <button class="bib-btn-outline bib-btn-sm" id="bib-visor-inicio" title="Inicio"><i class="ri-skip-back-line"></i></button>
-                    <button class="bib-btn-outline bib-btn-sm" id="bib-visor-ant" title="Anterior"><i class="ri-arrow-left-s-line"></i></button>
-                    <span class="bib-visor-pos" id="bib-visor-pos">Inicio</span>
-                    <button class="bib-btn-outline bib-btn-sm" id="bib-visor-sig" title="Siguiente"><i class="ri-arrow-right-s-line"></i></button>
-                    <button class="bib-btn-outline bib-btn-sm" id="bib-visor-fin" title="Final"><i class="ri-skip-forward-line"></i></button>
-                </div>
+        <div class="bib-panel bib-visor-cabecera">
+            <div>
+                <h2 class="bib-visor-titulo" id="bib-visor-titulo"></h2>
+                <div class="bib-visor-nivel" id="bib-visor-nivel"></div>
             </div>
-
-            <div class="bib-visor-der">
-                <div class="bib-panel">
-                    <h2 class="bib-visor-titulo" id="bib-visor-titulo"></h2>
-                    <table class="bib-tabla-meta bib-tabla-meta-corta"><tbody id="bib-visor-ficha"></tbody></table>
-                    <div class="bib-visor-nivel" id="bib-visor-nivel"></div>
-                </div>
-                <div class="bib-panel">
-                    <h3 class="bib-etiqueta-panel">Jugadas</h3>
-                    <div class="bib-jugadas" id="bib-visor-jugadas"></div>
-                </div>
-            </div>
+            <table class="bib-tabla-meta bib-tabla-meta-corta"><tbody id="bib-visor-ficha"></tbody></table>
         </div>
+        {{-- Tablero, jugadas con variantes y exportar PGN: comun/visorPartida.js --}}
+        <div class="bib-panel" id="bib-visor-ev"></div>
     </div>
 
     {{-- ─────────────── MIS GUARDADOS ─────────────── --}}
